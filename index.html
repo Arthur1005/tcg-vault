@@ -948,10 +948,10 @@
       CAT = j;
       HAY = j.cards.map(c => { const st = j.sets[c[0]]; return norm(c[2] + ' ' + (c[4] || '') + ' ' + st[2] + ' ' + st[0] + ' ' + (st[6] || '') + ' ' + c[1] + ' ' + (j.rarities[c[3]] || '')); });
       SHAY = j.sets.map(st => norm(st[2] + ' ' + st[0] + ' ' + st[3] + ' ' + (st[6] || '')));
-      HAYC = HAY.map(cmp); PHAYC = PHAY.map(cmp); SHAYC = SHAY.map(cmp);
       PRICE = new Map(); (j.sealed || []).forEach(r => { if (r[8] || r[9]) PRICE.set('S:' + r[0] + ':' + r[1], [r[8], r[9]]); });
       const ABBR = [[/elite trainer box/i, 'etb'], [/ultra.premium collection/i, 'upc'], [/pok[eé]mon center/i, 'pc pokemoncenter'], [/build ?& ?battle/i, 'b&b bnb'], [/booster box/i, 'bb'], [/booster bundle/i, 'bundle bb'], [/special premium collection/i, 'spc'], [/1-Pack Blister|single pack blister/i, '1pk 1-pack single pack blister'], [/2-Pack Blister/i, '2pk 2-pack two pack blister'], [/3-Pack Blister/i, '3pk 3-pack three pack blister']];
       PHAY = (j.sealed || []).map(r => { const t = r[1] + ' ' + j.sealedTypes[r[3]]; return norm(r[1] + ' ' + r[2] + ' ' + j.sealedTypes[r[3]] + ' ' + ABBR.filter(([rx]) => rx.test(t)).map(x => x[1]).join(' ') + (r[0] === 'JP' ? ' japanese' : '')); });
+      HAYC = HAY.map(cmp); PHAYC = PHAY.map(cmp); SHAYC = SHAY.map(cmp);
       return j;
     }).catch(e => { CAT_P = null; throw e; });
     return CAT_P;
@@ -972,10 +972,13 @@
   function makeQuery(raw){
     const q = norm(raw).trim();
     const toks = q.split(/[\s\/#,]+/).filter(Boolean).map(t => t.replace(/^0+(?=\d)/, ''));
-    return { q, toks, ctoks: toks.map(cmp) };
+    // One- or two-letter words (like "eb") must start a word, or they'd match inside "celebration"; numbers can match anywhere.
+    const res = toks.map(t => (t.length <= 2 && !/^\d+$/.test(t)) ? new RegExp('(^|[^a-z0-9\u3040-\u30ff\u3400-\u9fff])' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : null);
+    return { q, toks, ctoks: toks.map(cmp), res };
   }
   // 2 = exact, 1 = close (typo or shortened word), 0 = no match
-  function tokMatch(h, hc, t, tc, fuzzy){
+  function tokMatch(h, hc, t, tc, fuzzy, re){
+    if (re) return re.test(h) ? 2 : 0;
     if (h.includes(t) || (tc && hc.includes(tc))) return 2;
     if (!fuzzy || !tc || tc.length < 4) return 0;
     const words = h.split(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff]+/);
@@ -988,7 +991,7 @@
   function matchItem(h, hc, Q, fuzzy){
     let hits = 0, close = 0, strong = false;
     for (let k = 0; k < Q.toks.length; k++){
-      const m = tokMatch(h, hc, Q.toks[k], Q.ctoks[k], fuzzy);
+      const m = tokMatch(h, hc, Q.toks[k], Q.ctoks[k], fuzzy, Q.res[k]);
       if (m){ hits++; if (m === 1) close++; if (Q.ctoks[k].length >= 3 || /^\d+$/.test(Q.ctoks[k])) strong = true; }
     }
     return { all: hits === Q.toks.length, hits, close, strong };
@@ -1057,7 +1060,9 @@
         const c = CAT.cards[x.i], nm = cmp(norm(c[2])), al = cmp(norm(c[4] || ''));
         const score = (nm === qc || al === qc) ? 0 : (nm.startsWith(Q.ctoks[0]) || al.startsWith(Q.ctoks[0])) ? 1 : 2;
         const st = CAT.sets[c[0]], isPromo = /promo/i.test(st[2] + ' ' + (st[6] || '') + ' ' + (CAT.rarities[c[3]] || ''));
-        out.push({ card: x.i, score: score + x.close - (S.kind === 'promo' && isPromo ? 2 : 0) });
+        // Closest-match mode: words that hit the card's own name matter more than words that only hit a set name.
+        const nameHay = norm(c[2] + ' ' + (c[4] || '')), nameHits = res.partial ? Q.toks.filter((t, k) => tokMatch(nameHay, cmp(nameHay), t, Q.ctoks[k], true, Q.res[k])).length : 0;
+        out.push({ card: x.i, score: score + x.close - (S.kind === 'promo' && isPromo ? 2 : 0) - nameHits * 10 });
       });
       out.sort((a, b) => a.score - b.score || (CAT.sets[CAT.cards[b.card][0]][5] || '').localeCompare(CAT.sets[CAT.cards[a.card][0]][5] || ''));
     }
