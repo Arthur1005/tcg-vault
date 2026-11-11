@@ -74,6 +74,23 @@
   .summary .v,.summary .v.big{font-family:"Cormorant Garamond",Georgia,serif;font-size:26px;line-height:32px;font-weight:600;margin-top:var(--s1)}
   .summary .g{font-size:12px;line-height:16px;font-weight:600;margin-top:var(--s1)}
   .pos{color:var(--pos)} .neg{color:var(--neg)}
+  /* value-over-time chart: a full-width row inside the summary card */
+  .summary > div.trend,.summary > div.trend *{text-align:left}
+  .summary > div.trend{grid-column:1/-1;border-top:1px solid var(--line);margin-top:var(--s2);padding-top:var(--s3)}
+  .tr-head{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);height:24px}
+  .tr-leg{display:flex;gap:var(--s3);font-size:11px;line-height:16px;font-weight:600;color:var(--muted)}
+  .tr-leg span{display:inline-flex;align-items:center;gap:var(--s1)}
+  .tr-leg i{display:inline-block;width:16px;height:0;border-top:2px solid var(--gold)}
+  .tr-leg i.paid{border-top:2px dashed #4a6b8a}
+  .tr-rng{display:flex;gap:var(--s1)}
+  .tr-rng button{height:24px;min-width:32px;padding:0 var(--s2);border:0;border-radius:var(--rp);background:none;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer}
+  .tr-rng button.on{background:var(--tint);color:var(--ink)}
+  .tr-plot{position:relative;height:144px;margin-top:var(--s2);touch-action:pan-y;-webkit-user-select:none;user-select:none}
+  .tr-plot svg{display:block;width:100%;height:100%;overflow:visible}
+  .tr-tip{position:absolute;top:0;pointer-events:none;background:var(--ink);color:#f7f4ee;border-radius:var(--rp);padding:var(--s1) var(--s2);font-size:11px;line-height:16px;white-space:nowrap;transform:translateX(-50%);opacity:0;transition:opacity .12s}
+  .tr-tip.on{opacity:1}
+  .tr-tip b{font-weight:700;color:var(--gold2)}
+  .tr-note{font-size:11px;line-height:16px;color:var(--muted);margin-top:var(--s1)}
 
   /* section head */
   .h1row{display:flex;align-items:center;gap:var(--s2);height:32px;margin-bottom:var(--s2)}
@@ -479,7 +496,7 @@
     <div class="f" data-for="promo sealed"><label for="f-qty">Quantity</label><input id="f-qty" type="number" min="1" step="1" value="1" inputmode="numeric"></div>
 
     <div class="f"><label for="f-price" id="priceLabel">Paid (each)</label><div class="paidrow"><select id="f-pcur" aria-label="Currency paid in"><option value="AUD">A$</option><option value="TWD">NT$</option><option value="USD">US$</option><option value="JPY">¥</option><option value="EUR">€</option><option value="GBP">£</option><option value="CAD">C$</option><option value="NZD">NZ$</option><option value="SGD">S$</option></select><input id="f-price" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div></div>
-    <div class="f"><label for="f-value" id="valueLabel">Value now (each)</label><input id="f-value" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+    <div class="f"><label for="f-value" id="valueLabel">Value now (each)</label><input id="f-value" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"><a class="linkbtn" id="valCheck" target="_blank" rel="noopener" style="margin-top:var(--s2);font-size:13px">Check eBay sold ↗</a></div>
     <div class="f full" id="editSplit" hidden></div>
     <div class="f full"><label for="f-date">Date bought</label><input id="f-date" type="date"></div>
   </div>
@@ -664,9 +681,105 @@
     if (!r || !r[from] || !r[S.currency]) return null;
     return amount / r[from] * r[S.currency];
   }
+  /* ---------- live prices (Home Screen app only) ----------
+     Cards: pokemontcg.io (TCGplayer market, US$) for English, TCGdex (Cardmarket, €) for Japanese.
+     Sealed: the daily TCGplayer price file from pokesave-data. Checked once a day and kept on the phone.
+     The Claude-hosted page can't reach outside sites, so it uses the prices built into the catalogue. */
+  let LIVE = { day: '', c: {}, s: {}, sDay: '' };
+  try { const l = JSON.parse(localStorage.getItem('vault.live') || 'null'); if (l && l.c) LIVE = Object.assign(LIVE, l); } catch(e) {}
+  const saveLive = () => { try { localStorage.setItem('vault.live', JSON.stringify(LIVE)); } catch(e) {} };
+  const isCardId = id => id && !String(id).startsWith('S:');
+  function setRowFor(it){
+    if (!CAT || !isCardId(it.catId)) return null;
+    if (!SETIDX){ SETIDX = new Map(); CAT.sets.forEach(st => SETIDX.set(st[1] + ':' + st[0], st)); }
+    const [lang, code, ...rest] = String(it.catId).split(':');
+    return { st: SETIDX.get(lang + ':' + code), num: rest.join(':'), lang };
+  }
+  // The id each price service uses for this card.
+  function apiIdFor(it){
+    const r = setRowFor(it); if (!r || !r.st || !r.st[7]) return '';
+    if (r.lang === 'EN') return r.st[7] + '-' + r.num.replace(/^SVP\s*/, '').replace(/^0+(?=\d)/, '');
+    const set = String(r.st[7]).split('/').pop();
+    return set + '-' + r.num.split('/')[0];
+  }
+  const pickTcg = pr => { if (!pr) return 0; for (const k of ['holofoil','normal','reverseHolofoil','1stEditionHolofoil','unlimitedHolofoil','1stEditionNormal']) if (pr[k] && (pr[k].market || pr[k].mid)) return pr[k].market || pr[k].mid; const v = Object.values(pr).find(x => x && (x.market || x.mid)); return v ? (v.market || v.mid) : 0; };
+  const pickCm = c => { if (!c) return 0; const holo = c['avg30-holo'] || c['trend-holo'] || 0, plain = c.avg30 || c.trend || 0; return Math.max(holo, plain) || 0; };
+  let liveBusy = false;
+  async function refreshLive(force, extra){
+    if (!window.__STANDALONE || liveBusy || !CAT || !navigator.onLine) return;
+    const today = todayISO();
+    const cards = S.items.concat(extra || []).filter(it => isCardId(it.catId));
+    const missing = cards.filter(it => !LIVE.c[it.catId]);
+    const sealedDue = LIVE.sDay !== today && S.items.some(it => kindOf(it) === 'sealed' && sealedTcgId(it));
+    if (!force && LIVE.day === today && !missing.length && !sealedDue) return;
+    if (extra && !missing.length) return;
+    liveBusy = true;
+    try {
+      const todo = (!extra && (force || LIVE.day !== today)) ? cards : missing;
+      const en = [...new Set(todo.filter(it => String(it.catId).startsWith('EN:')).map(it => it.catId))];
+      const jp = [...new Set(todo.filter(it => !String(it.catId).startsWith('EN:')).map(it => it.catId))];
+      const byApi = new Map(); [...en, ...jp].forEach(cid => { const it = todo.find(x => x.catId === cid); const a = apiIdFor(it); if (a) byApi.set(a, cid); });
+      const enIds = [...byApi.keys()].filter(a => String(byApi.get(a)).startsWith('EN:'));
+      for (let i = 0; i < enIds.length; i += 30){
+        const q = enIds.slice(i, i + 30).map(a => 'id:"' + a + '"').join(' OR ');
+        try {
+          const j = await fetch('https://api.pokemontcg.io/v2/cards?q=' + encodeURIComponent(q) + '&select=id,tcgplayer,cardmarket&pageSize=50').then(r => r.json());
+          (j.data || []).forEach(c => { const cid = byApi.get(c.id); if (!cid) return;
+            LIVE.c[cid] = { usd: pickTcg(c.tcgplayer && c.tcgplayer.prices) || 0, eur: (c.cardmarket && c.cardmarket.prices && (c.cardmarket.prices.trendPrice || c.cardmarket.prices.averageSellPrice)) || 0, d: today }; });
+        } catch(e) {}
+      }
+      const jpIds = [...byApi.keys()].filter(a => !String(byApi.get(a)).startsWith('EN:'));
+      await Promise.all(jpIds.map(async a => {
+        try { const c = await fetch('https://api.tcgdex.net/v2/ja/cards/' + encodeURIComponent(a)).then(r => r.ok ? r.json() : null);
+          LIVE.c[byApi.get(a)] = { usd: 0, eur: c && c.pricing ? pickCm(c.pricing.cardmarket) : 0, d: today };
+        } catch(e) {}
+      }));
+      [...en, ...jp].forEach(cid => { if (!LIVE.c[cid]) LIVE.c[cid] = { usd: 0, eur: 0, d: today }; }); // checked, nothing listed
+      if (!extra && (sealedDue || force)){
+        try {
+          const j = await fetch('https://raw.githubusercontent.com/brentsharon/pokesave-data/main/data/sealed-prices.json', { cache: 'no-store' }).then(r => r.json());
+          const want = new Set(S.items.map(sealedTcgId).filter(Boolean).map(String)); const m = {};
+          (j.products || []).forEach(p => { if (want.has(String(p.id)) && p.market) m[p.id] = p.market; });
+          LIVE.s = m; LIVE.sDay = today; LIVE.sDate = String(j.updatedAt || '').slice(0, 10);
+        } catch(e) {}
+      }
+      if (!extra) LIVE.day = today; saveLive();
+    } finally { liveBusy = false; }
+    render();
+  }
+  let SEALEDIDX = null;
+  function sealedTcgId(it){
+    if (kindOf(it) !== 'sealed') return '';
+    if (it.tcgId) return it.tcgId;
+    if (!CAT || !it.catId) return '';
+    if (!SEALEDIDX){ SEALEDIDX = new Map(); (CAT.sealed || []).forEach(r => { if (r[5]) SEALEDIDX.set('S:' + r[0] + ':' + r[1], r[5]); }); }
+    return SEALEDIDX.get(it.catId) || '';
+  }
+  // Price of the plain (unstamped, ungraded) card — shown for reference on stamped promos and slabs.
+  function cardPrice(it){
+    if (!isCardId(it.catId)) return null;
+    const p = LIVE.c[it.catId]; if (!p) return null;
+    const jp = !String(it.catId).startsWith('EN:');
+    const order = jp ? [['eur', p.eur], ['usd', p.usd]] : [['usd', p.usd], ['eur', p.eur]];
+    for (const [k, v] of order){
+      if (!v) continue;
+      const amt = conv(v, k === 'usd' ? 'USD' : 'EUR'); if (amt == null) continue;
+      return { amount: amt, src: k === 'usd' ? 'TCGplayer' : 'Cardmarket', date: p.d, orig: (k === 'usd' ? 'US$' : '€') + v.toFixed(2), live: true };
+    }
+    return null;
+  }
+  // Stamped promos and graded slabs sell for far more (or less) than the plain card, so its price isn't used as their value.
+  const needsOwnValue = it => kindOf(it) === 'graded' || !!String(it.variant || '').trim();
   // Latest market price for one unit, in the vault's currency: TCGplayer for English, Cardmarket for Japanese (each falls back to the other).
   function marketFor(it){
-    if (!PRICE || !it.catId) return null;
+    if (!it.catId) return null;
+    if (isCardId(it.catId)) return needsOwnValue(it) ? null : cardPrice(it);
+    const tid = sealedTcgId(it);
+    if (tid && LIVE.s && LIVE.s[tid] && !String(it.catId).startsWith('S:JP:')){
+      const v = LIVE.s[tid], amt = conv(v, 'USD');
+      if (amt != null) return { amount: amt, src: 'TCGplayer', date: LIVE.sDate || LIVE.sDay, orig: 'US$' + v.toFixed(2), live: true };
+    }
+    if (!PRICE) return null;
     const p = PRICE.get(it.catId); if (!p) return null;
     const [usd, eur] = p, jp = String(it.catId).startsWith('S:JP:');
     const order = jp ? [['eur', eur], ['usd', usd]] : [['usd', usd], ['eur', eur]];
@@ -679,6 +792,14 @@
     }
     return null;
   }
+  // Search links for checking what an item really sells for.
+  function priceQuery(it){
+    if (it.catId && String(it.catId).startsWith('S:')) return String(it.catId).split(':').slice(2).join(':') + (it.lang === 'Japanese' ? ' Japanese' : '');
+    const stamp = String(it.variant || '').replace(/\s*stamp$/i, '');
+    return [it.nameEn || it.name, it.number, stamp, kindOf(it) === 'graded' ? [it.grader, it.grade].filter(Boolean).join(' ') : '', it.lang === 'Japanese' ? 'Japanese' : ''].filter(Boolean).join(' ');
+  }
+  const ebaySoldUrl = it => 'https://www.ebay.com.au/sch/i.html?_nkw=' + encodeURIComponent(priceQuery(it)) + '&LH_Sold=1&LH_Complete=1&_sop=13';
+  const pcUrl = it => 'https://www.pricecharting.com/search-products?type=prices&q=' + encodeURIComponent(priceQuery(it));
   const hasManualValue = it => it.value !== '' && it.value != null;
   function unitValue(it){
     if (hasManualValue(it)) return num(it.value);
@@ -754,7 +875,7 @@
     if (it.catId && String(it.catId).startsWith('S:')) it = Object.assign({}, it, { name: String(it.catId).split(':').slice(2).join(':') });
     const k = kindOf(it), jp = it.lang === 'Japanese';
     const q = (k === 'sealed' ? it.name : [it.nameEn || it.name, it.setCode || it.set, it.number].filter(Boolean).join(' ')) || '';
-    const L = [];
+    const L = [['eBay sold', ebaySoldUrl(it)], ['PriceCharting', pcUrl(it)]];
     if (it.officialUrl && /^https:\/\/(www\.)?(pokemon\.com|pokemon-card\.com)\//.test(it.officialUrl)) L.push(['Official', it.officialUrl]);
     L.push(['TCGplayer', it.tcgId ? 'https://www.tcgplayer.com/product/' + encodeURIComponent(it.tcgId) : 'https://www.tcgplayer.com/search/' + (jp ? 'pokemon-japan' : 'pokemon') + '/product?q=' + encodeURIComponent(q)]);
     L.push(['Cardmarket', 'https://www.cardmarket.com/en/Pokemon/Products/Search?searchString=' + encodeURIComponent(q)]);
@@ -796,6 +917,95 @@
     return 'Promo' + (it.variant ? ' · ' + it.variant : it.cond ? ' · ' + it.cond : '');
   }
 
+  /* ---------- value over time ----------
+     One saved point per day (history/days: { 'YYYY-MM-DD': [value, paid, currency] }), written whenever the totals change.
+     Days before the first saved point are filled in from purchase dates, at today's prices. */
+  let HIST = {}, histTimer = null;
+  S.range = (() => { try { return localStorage.getItem('vault.range') || 'all'; } catch(e) { return 'all'; } })();
+  const dayOf = it => it.date || (it.createdAt ? new Date(it.createdAt - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : todayISO());
+  const inCur = (v, cur) => (!cur || cur === S.currency) ? v : (conv(v, cur) ?? v);
+  function snapshotToday(){
+    if (!S.db || !S.live || !S.canWrite || !S.items.length) return;
+    const val = Math.round(S.items.reduce((a, it) => a + valOf(it), 0) * 100) / 100;
+    const paid = Math.round(S.items.reduce((a, it) => a + costOf(it), 0) * 100) / 100;
+    const t = todayISO(), cur = HIST[t];
+    if (cur && cur[0] === val && cur[1] === paid && cur[2] === S.currency) return;
+    clearTimeout(histTimer);
+    histTimer = setTimeout(() => { const all = Object.assign({}, HIST, { [t]: [val, paid, S.currency] }); const keep = Object.keys(all).sort().slice(-1000); const out = {}; keep.forEach(k => out[k] = all[k]); HIST = out; S.db.doc('history/days').set(out).catch(() => {}); }, 1500);
+  }
+  function trendSeries(){
+    const t = todayISO();
+    const saved = Object.keys(HIST).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && d < t).sort();
+    const first = saved[0] || t;
+    const pts = [];
+    // Before anything was saved: step up on each purchase date, valued at today's prices.
+    const buys = [...new Set(S.items.map(dayOf))].filter(d => d < first).sort();
+    buys.forEach(d => {
+      const held = S.items.filter(it => dayOf(it) <= d);
+      pts.push({ d, v: held.reduce((a, it) => a + valOf(it), 0), p: held.reduce((a, it) => a + costOf(it), 0), est: true });
+    });
+    saved.forEach(d => { const h = HIST[d]; pts.push({ d, v: inCur(+h[0] || 0, h[2]), p: inCur(+h[1] || 0, h[2]) }); });
+    pts.push({ d: t, v: S.items.reduce((a, it) => a + valOf(it), 0), p: S.items.reduce((a, it) => a + costOf(it), 0) });
+    return pts;
+  }
+  const RANGES = [['1m', '1M', 31], ['3m', '3M', 92], ['1y', '1Y', 366], ['all', 'All', 0]];
+  function renderTrend(box){
+    if (!box) return;
+    let pts = trendSeries();
+    const r = RANGES.find(x => x[0] === S.range) || RANGES[3];
+    if (r[2]){
+      const from = new Date(Date.now() - r[2] * 864e5).toISOString().slice(0, 10);
+      const before = pts.filter(p => p.d < from).pop();
+      pts = pts.filter(p => p.d >= from);
+      if (before) pts.unshift(Object.assign({}, before, { d: from })); // carry the level in from the left edge
+    }
+    const head = '<div class="tr-head"><div class="tr-leg"><span><i></i>Value</span><span><i class="paid"></i>Paid</span></div>' +
+      '<div class="tr-rng">' + RANGES.map(x => '<button type="button" data-r="' + x[0] + '"' + (x[0] === r[0] ? ' class="on"' : '') + '>' + x[1] + '</button>').join('') + '</div></div>';
+    box.innerHTML = head + '<div class="tr-plot" id="trPlot"></div>' + (pts.some(p => p.est) ? '<div class="tr-note">Earlier days use today’s prices. From now on the vault saves the real value each day.</div>' : '');
+    box.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { S.range = b.dataset.r; try { localStorage.setItem('vault.range', S.range); } catch(e) {} renderTrend(box); });
+    const plot = box.querySelector('#trPlot');
+    const W = Math.max(200, plot.clientWidth || 320), H = 144, padT = 8, padB = 20, padL = 0, padR = 0;
+    const ts = pts.map(p => new Date(p.d + 'T00:00').getTime());
+    let t0 = ts[0], t1 = ts[ts.length - 1]; if (t1 === t0){ t0 -= 864e5; }
+    const vmax = Math.max(1, ...pts.map(p => Math.max(p.v, p.p)));
+    const nice = (() => { const e = Math.pow(10, Math.floor(Math.log10(vmax))); const m = vmax / e; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * e; })();
+    const X = t => padL + (t - t0) / (t1 - t0) * (W - padL - padR);
+    const Y = v => padT + (1 - v / nice) * (H - padT - padB);
+    const path = key => pts.map((p, i) => (i ? 'L' : 'M') + X(ts[i]).toFixed(1) + ' ' + Y(p[key]).toFixed(1)).join(' ');
+    const lastX = X(ts[ts.length - 1]), baseY = Y(0);
+    const fmtAxis = v => { const sym = currencySymbol(S.currency); return v >= 1000 ? sym + (v / 1000).toFixed(v % 1000 ? 1 : 0) + 'k' : sym + Math.round(v); };
+    const dateLbl = t => new Date(t).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: (t1 - t0) > 300 * 864e5 ? '2-digit' : undefined });
+    const grid = [0, .5, 1].map(f => { const y = Y(nice * f).toFixed(1); return '<line x1="0" x2="' + W + '" y1="' + y + '" y2="' + y + '" stroke="#ebe5da" stroke-width="1"' + (f ? ' stroke-dasharray="2 4"' : '') + '/>' + (f ? '<text x="0" y="' + (+y - 4) + '" font-size="10" fill="#7d766b">' + fmtAxis(nice * f) + '</text>' : ''); }).join('');
+    const single = pts.length < 2;
+    const svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Vault value and amount paid over time">' +
+      '<defs><linearGradient id="trFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#a8844f" stop-opacity=".18"/><stop offset="1" stop-color="#a8844f" stop-opacity="0"/></linearGradient></defs>' + grid +
+      (single ? '' : '<path d="' + path('v') + ' L' + lastX.toFixed(1) + ' ' + baseY + ' L' + X(ts[0]).toFixed(1) + ' ' + baseY + ' Z" fill="url(#trFill)"/>' +
+        '<path d="' + path('p') + '" fill="none" stroke="#4a6b8a" stroke-width="2" stroke-dasharray="4 4" stroke-linejoin="round" stroke-linecap="round"/>' +
+        '<path d="' + path('v') + '" fill="none" stroke="#a8844f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>') +
+      '<circle cx="' + lastX.toFixed(1) + '" cy="' + Y(pts[pts.length - 1].v).toFixed(1) + '" r="4" fill="#a8844f" stroke="#fffefb" stroke-width="2"/>' +
+      '<text x="0" y="' + (H - 4) + '" font-size="10" fill="#7d766b">' + dateLbl(t0) + '</text>' +
+      '<text x="' + W + '" y="' + (H - 4) + '" font-size="10" fill="#7d766b" text-anchor="end">Today</text>' +
+      '<g id="trHover" style="display:none"><line id="trX" y1="' + padT + '" y2="' + baseY + '" stroke="#1c1a17" stroke-opacity=".25" stroke-width="1"/>' +
+      '<circle id="trDp" r="4" fill="#4a6b8a" stroke="#fffefb" stroke-width="2"/><circle id="trDv" r="4" fill="#a8844f" stroke="#fffefb" stroke-width="2"/></g></svg>';
+    plot.innerHTML = svg + '<div class="tr-tip" id="trTip"></div>';
+    if (single) return;
+    const g = plot.querySelector('#trHover'), tip = plot.querySelector('#trTip');
+    const show = e => {
+      const rc = plot.getBoundingClientRect(); const x = (e.clientX - rc.left) / rc.width * W;
+      let i = 0, best = Infinity; ts.forEach((t, k) => { const d = Math.abs(X(t) - x); if (d < best){ best = d; i = k; } });
+      const p = pts[i], px = X(ts[i]);
+      g.style.display = ''; g.querySelector('#trX').setAttribute('x1', px); g.querySelector('#trX').setAttribute('x2', px);
+      g.querySelector('#trDv').setAttribute('cx', px); g.querySelector('#trDv').setAttribute('cy', Y(p.v));
+      g.querySelector('#trDp').setAttribute('cx', px); g.querySelector('#trDp').setAttribute('cy', Y(p.p));
+      tip.innerHTML = new Date(ts[i]).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) + ' · <b>' + fmt(p.v) + '</b> · paid ' + fmt(p.p) + (p.est ? ' · est.' : '');
+      const left = px / W * rc.width, half = tip.offsetWidth / 2;
+      tip.style.left = Math.max(half, Math.min(rc.width - half, left)) + 'px'; tip.classList.add('on');
+    };
+    const hide = () => { g.style.display = 'none'; tip.classList.remove('on'); };
+    plot.onpointerdown = show; plot.onpointermove = e => { if (e.pointerType === 'mouse' || e.buttons) show(e); };
+    plot.onpointerleave = hide; plot.onpointerup = e => { if (e.pointerType !== 'mouse') setTimeout(hide, 1600); }; plot.onpointercancel = hide;
+  }
+
   /* ---------- render ---------- */
   function render(){
     renderNudge();
@@ -826,7 +1036,10 @@
       '<div><div class="k">Value</div><div class="v big">' + fmt(val) + '</div>' +
       (cost > 0 ? '<div class="g ' + (gain >= 0 ? 'pos' : 'neg') + '">' + fmt(gain, true) + ' · ' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%</div>' : '') + '</div>' +
       '<div><div class="k">Paid</div><div class="v">' + fmt(cost) + '</div></div>' +
-      '<div><div class="k">Items</div><div class="v">' + units + '</div></div>';
+      '<div><div class="k">Items</div><div class="v">' + units + '</div></div>' +
+      (S.tab === 'all' && S.items.length ? '<div class="trend" id="trend"></div>' : '');
+    renderTrend($('#trend'));
+    snapshotToday();
 
     const count = k => S.items.filter(it => k === 'all' || kindOf(it) === k).reduce((a, it) => a + qtyOf(it), 0);
     $('#chips').innerHTML = [['all','All']].concat(Object.entries(KINDS)).map(([k, n]) =>
@@ -911,9 +1124,11 @@
     if (it.price !== '' && it.price != null){ const sp = splitOf(it), cur = payCur(it), other = cur !== S.currency;
       add('Paid', fmt(costOf(it)) + ((sp || qtyOf(it) > 1 || other) ? ' <span class="src">' + [other ? 'paid ' + fmtIn(rawCostOf(it), cur) : '', sp ? sp.map(v => fmtIn(num(v), cur)).join(' · ') : qtyOf(it) > 1 ? fmtIn(num(it.price), cur) + ' each' : '', other ? 'converted to ' + S.currency : ''].filter(Boolean).join(' · ') + '</span>' : '')); }
     { const m = marketFor(it);
-      if (m) add('Market', fmt(m.amount * qtyOf(it)) + ' <span class="src">' + m.src + ' ' + m.orig + (qtyOf(it) > 1 ? ' each' : '') + ' · ' + shortDate(m.date) + (S.currency !== (m.src === 'TCGplayer' ? 'USD' : 'EUR') ? ' · converted to ' + S.currency : '') + '</span>');
-      if (hasManualValue(it)) add('Your value', fmt(valOf(it)));
-      else if (!m && it.price !== '' && it.price != null) add('Value', fmt(valOf(it)) + ' <span class="src">same as paid</span>');
+      if (m) add('Market', fmt(m.amount * qtyOf(it)) + ' <span class="src">' + (m.live ? 'Live · ' : '') + m.src + ' ' + m.orig + (qtyOf(it) > 1 ? ' each' : '') + ' · ' + shortDate(m.date) + (S.currency !== (m.src === 'TCGplayer' ? 'USD' : 'EUR') ? ' · converted to ' + S.currency : '') + '</span>');
+      const ref = needsOwnValue(it) ? cardPrice(it) : null;
+      if (ref) add('Plain card', fmt(ref.amount) + ' <span class="src">' + ref.src + ' ' + ref.orig + ' · without ' + (k === 'graded' ? 'grading' : 'the stamp') + ' · for reference</span>');
+      if (hasManualValue(it)) add('Your value', fmt(valOf(it)) + (qtyOf(it) > 1 ? ' <span class="src">' + fmt(num(it.value)) + ' each</span>' : ''));
+      else if (!m) add('Value', fmt(valOf(it)) + ' <span class="src">same as paid — no live price for this one</span>' + (S.canWrite ? '<button type="button" class="pill gold" id="dSetVal" style="margin-top:var(--s2)">Set value</button>' : ''));
     }
     if (it.price !== '' && it.price != null) { const g = valOf(it) - costOf(it); add('Gain', '<span class="' + (g >= 0 ? 'pos' : 'neg') + '">' + fmt(g, true) + '</span>'); }
     if (it.date) add('Bought', esc(new Date(it.date + 'T00:00').toLocaleDateString('en-AU', {day:'numeric', month:'short', year:'numeric'})));
@@ -935,6 +1150,7 @@
       '<div class="d-actions"><button type="button" class="btn ghost" id="dClose">Close</button>' +
       (S.canWrite ? '<button type="button" class="btn primary" id="dEdit">Edit</button>' : '') + '</div>';
     $('#dClose').onclick = closeDetail;
+    if ($('#dSetVal')) $('#dSetVal').onclick = () => { const id = S.detailId; closeDetail(); openItem(id); setTimeout(() => { const f = F('value'); f.scrollIntoView({block:'center'}); f.focus(); }, 320); };
     if ($('#dEdit')) $('#dEdit').onclick = () => { const id = S.detailId; closeDetail(); openItem(id); };
     if ($('#dCopy')) $('#dCopy').onclick = async () => {
       try { await navigator.clipboard.writeText(String(it.cert).trim()); toast('Cert number copied'); }
@@ -1224,6 +1440,7 @@
       F('number').value = fmtNum(c[1], st[4]);
       F('lang').value = st[1] === 'JP' ? 'Japanese' : 'English';
       updateCertWarn();
+      refreshLive(false, [{ catId: S.picked.catId, kind: 'promo' }]); // price it now, so the "worth" step can be skipped
     }
     $('#findQ').value = ''; closeHits(); $('#findClear').hidden = true; $('#findQ').blur();
     renderPicked();
@@ -1282,6 +1499,7 @@
   function updateValueHint(){
     const m = marketFor(readForm());
     F('value').placeholder = m ? 'Auto: ' + fmt(m.amount) + ' (' + m.src + ')' : 'Auto: same as paid';
+    try { $('#valCheck').href = ebaySoldUrl(readForm()); } catch(e) {}
   }
   function showPhoto(){
     updateValueHint();
@@ -1582,8 +1800,16 @@
     if (k === 'graded') st.push('grading');
     if (k === 'sealed') st.push('ptype');
     if (k !== 'graded') st.push('qty');
-    st.push('date', 'paid', 'extra', 'review');
+    st.push('date', 'paid');
+    if (wantsWorth(k)) st.push('worth');
+    st.push('extra', 'review');
     return st;
+  }
+  // Ask what it's worth only when there's no market price to use: slabs, stamped promos, and anything not priced online.
+  function wantsWorth(k){
+    if (k === 'graded' || F('variant').value.trim()) return true;
+    const it = { kind: k, catId: S.picked && S.picked.catId || '', lang: F('lang').value };
+    return !it.catId || !marketFor(it);
   }
   function startFlow(){
     FLOW.active = true; FLOW.i = 0; FLOW.manual = false;
@@ -1601,7 +1827,7 @@
   function flowJump(id){ FLOW.steps = flowStepsFor(S.kind); const n = FLOW.steps.indexOf(id); if (n >= 0){ const d = n < FLOW.i ? -1 : 1; FLOW.i = n; renderFlow(d); } }
   function flowRefreshFooter(){
     const id = FLOW.steps[FLOW.i], next = $('#flowNext'), skip = $('#flowSkip');
-    const optional = ['source', 'value', 'extra', 'date'].includes(id);
+    const optional = ['source', 'value', 'worth', 'extra', 'date'].includes(id);
     skip.hidden = !optional;
     next.hidden = id === 'kind';
     next.textContent = id === 'review' ? 'Add to vault' : 'Next';
@@ -1706,6 +1932,17 @@
         setTimeout(() => bi.focus(), 260);
       }
     }
+    else if (id === 'worth'){
+      const it = readForm(), multi = k !== 'graded' && (parseInt(F('qty').value) || 1) > 1;
+      T('What’s it worth now?', (k === 'graded' ? 'Slabs sell for more than the raw card, so there’s no automatic price.' : it.variant ? 'Stamped promos don’t have a live price online.' : 'No live price found for this one.') + ' Check what it sold for recently, then enter the price' + (multi ? ' for one.' : '.'));
+      add('<div class="links" style="margin-bottom:var(--s3)"><a class="pill gold" href="' + esc(ebaySoldUrl(it)) + '" target="_blank" rel="noopener">eBay AU sold ↗</a><a class="pill" href="' + esc(pcUrl(it)) + '" target="_blank" rel="noopener">PriceCharting ↗</a></div>');
+      const ref = cardPrice(it);
+      if (ref && needsOwnValue(it)) add('<p class="hint">Plain card without ' + (k === 'graded' ? 'grading' : 'the stamp') + ': ' + fmt(ref.amount) + ' (' + ref.src + ' ' + ref.orig + ')</p>');
+      add('<label class="bigmoney"><span>' + esc(currencySymbol(S.currency)) + '</span><input id="worthIn" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0" aria-label="Value now"></label><p class="hint" style="margin-top:var(--s2)">Skip it and the value stays at what you paid. You can change it any time in Edit.</p>');
+      const wi = $('#worthIn'); wi.value = F('value').value; wi.oninput = () => { F('value').value = wi.value; };
+      wi.onkeydown = e => { if (e.key === 'Enter'){ e.preventDefault(); flowGo(1); } };
+      setTimeout(() => wi.focus(), 260);
+    }
     else if (id === 'extra'){
       T(S.assets ? 'Add a photo?' : 'Any notes?', S.assets ? 'Find the official image, copy it, and paste it in. Or skip this step.' : 'Optional.');
       if (S.assets) showPhoto();
@@ -1726,7 +1963,8 @@
       if (k !== 'graded') r('qty', 'Quantity', String(it.qty || 1));
       r('date', 'Bought', it.date ? new Date(it.date + 'T00:00').toLocaleDateString('en-AU', {day:'numeric', month:'short', year:'numeric'}) : 'Not set');
       { const sp = splitOf(it), cur = payCur(it); r('paid', 'Paid', sp ? paidText(it) + ' · ' + sp.map(v => fmtIn(num(v), cur)).join(' + ') : it.price === '' ? 'Not set' : paidText(it, true) + (k !== 'graded' && (it.qty || 1) > 1 ? ' each' : '')); }
-      { const m = marketFor(it); r('paid', 'Value now', m ? fmt(m.amount) + (k !== 'graded' && (it.qty || 1) > 1 ? ' each' : '') + ' (' + m.src + ' ' + m.orig + ')' : 'Same as paid (no market price yet)'); }
+      { const m = marketFor(it), each = k !== 'graded' && (it.qty || 1) > 1 ? ' each' : '', go = FLOW.steps.includes('worth') ? 'worth' : 'paid';
+        r(go, 'Value now', hasManualValue(it) ? fmt(num(it.value)) + each + ' (your price)' : m ? fmt(m.amount) + each + ' (' + m.src + ' ' + m.orig + ')' : 'Same as paid (no market price)'); }
       if (S.pendingFile || S.photoId) r('extra', 'Photo', 'Added');
       r('extra', 'Notes', it.notes);
       add('<div class="review">' + rows.join('') + '</div><p class="hint" style="margin-top:var(--s3)">Tap any line to change it.</p>');
@@ -1738,7 +1976,7 @@
   $('#flowSkip').addEventListener('click', () => {
     const id = FLOW.steps[FLOW.i];
     if (id === 'date') F('date').value = '';
-    if (id === 'value') F('value').value = '';
+    if (id === 'value' || id === 'worth') F('value').value = '';
     flowGo(1);
   });
   $('#flowNext').addEventListener('click', async () => {
@@ -1907,7 +2145,9 @@
       S.items = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
       if (!snap.metadata.fromCache){ S.live = true; clearTimeout(timer); if (S.canWrite) banner(''); }
       render();
+      refreshLive();
     }, () => { clearTimeout(timer); banner('Couldn’t load your collection. Try reopening the page.'); });
+    db.doc('history/days').onSnapshot(h => { HIST = h.exists ? (h.data() || {}) : {}; render(); }, () => {});
     db.doc('settings/main').onSnapshot(s => {
       const d = s.exists ? s.data() : null;
       if (d && d.currency && d.currency !== S.currency){ S.currency = d.currency; $('#s-currency').value = d.currency; render(); }
