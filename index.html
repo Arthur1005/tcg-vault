@@ -1128,10 +1128,12 @@
   }
 
   /* ---------- render ---------- */
+  const subLabel = t => t === 'Booster Pack' ? 'Packs' : short(t);
   function render(){
     renderNudge();
     // Sealed tab: second row of filters built from the product types actually in the vault.
-    const typeOf = it => it.ptype || 'Other';
+    // Sealed filter tabs: loose and sleeved booster packs share one "Packs" tab, whatever type they were saved with.
+    const typeOf = it => (it.ptype === 'Booster Pack' || (/sleeved/i.test(it.name || '') && !/art bundle|case|display|box/i.test(it.name || ''))) ? 'Booster Pack' : (it.ptype || 'Other');
     const sealedTypes = new Map();
     S.items.filter(it => kindOf(it) === 'sealed').forEach(it => sealedTypes.set(typeOf(it), (sealedTypes.get(typeOf(it)) || 0) + qtyOf(it)));
     // Forget the filter only once items have loaded and that type is genuinely gone.
@@ -1144,7 +1146,7 @@
       const types = [...sealedTypes.keys()].sort((a, b) => ((order.indexOf(a) + 1) || 99) - ((order.indexOf(b) + 1) || 99) || a.localeCompare(b));
       const total = [...sealedTypes.values()].reduce((a, b) => a + b, 0);
       subBox.innerHTML = '<button class="chip' + (!subOn ? ' on' : '') + '" data-sub="">All <span class="n">' + total + '</span></button>' +
-        types.map(t => '<button class="chip' + (subOn && S.sub === t ? ' on' : '') + '" data-sub="' + esc(t) + '">' + esc(short(t)) + ' <span class="n">' + sealedTypes.get(t) + '</span></button>').join('');
+        types.map(t => '<button class="chip' + (subOn && S.sub === t ? ' on' : '') + '" data-sub="' + esc(t) + '">' + esc(subLabel(t)) + ' <span class="n">' + sealedTypes.get(t) + '</span></button>').join('');
     }
     const inTab = S.items.filter(it => (S.tab === 'all' || kindOf(it) === S.tab) && (!subOn || typeOf(it) === S.sub));
     const cost = inTab.reduce((a, it) => a + costOf(it), 0);
@@ -1167,7 +1169,7 @@
       '<button class="chip' + (S.tab === k ? ' on' : '') + '" data-tab="' + k + '">' +
       (k !== 'all' ? '<span class="dot" style="background:' + STRIPE[k] + '"></span>' : '') +
       n + ' <span class="n">' + count(k) + '</span></button>').join('');
-    $('#tabLabel').textContent = subOn ? 'Sealed · ' + short(S.sub) : S.tab === 'all' ? 'All items' : 'All ' + KINDS[S.tab].toLowerCase();
+    $('#tabLabel').textContent = subOn ? 'Sealed · ' + subLabel(S.sub) : S.tab === 'all' ? 'All items' : 'All ' + KINDS[S.tab].toLowerCase();
     $('#vGrid').classList.toggle('on', S.view === 'grid');
     $('#vList').classList.toggle('on', S.view === 'list');
 
