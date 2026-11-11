@@ -262,6 +262,10 @@
   .flow-foot .err:empty{display:none}
   .flow .hits{position:static;max-height:40vh;border-top:1px solid var(--line);box-shadow:none}
   .flow .finder{margin-bottom:0}
+  /* While searching inside the add flow: hide the step text and buttons so the suggestions get the room. */
+  .flow.searching .flow-eyebrow,.flow.searching .flow-title,.flow.searching .flow-sub,.flow.searching .flow-foot,.flow.searching #flowManual{display:none}
+  .flow.searching .flow-body{margin-top:0}
+  .flow.searching .hits{max-height:calc(var(--vvh, 100vh) - 232px);min-height:160px}
   .flow .finder > .flabel, .flow .finder #finderHint{display:none}
   .flow-foot[hidden]{display:none}
   .bigmoney input{-moz-appearance:textfield}
@@ -792,7 +796,13 @@
     $('#vList').classList.toggle('on', S.view === 'list');
 
     const q = S.q.trim().toLowerCase();
-    const rows = inTab.filter(it => !q || [it.name, short(it.name), it.catId, it.nameEn, it.set, it.setCode, it.number, it.rarity, shortRarity(it.rarity, it.lang === 'Japanese'), it.cert, it.grader, it.variant, it.ptype, short(it.ptype), it.source, it.lang, it.notes].join(' ').toLowerCase().includes(q));
+    let rows = inTab, vaultPartial = false;
+    if (q){
+      const Q = makeQuery(q);
+      const hays = inTab.map(it => { const h = norm([it.name, short(it.name), it.catId, it.nameEn, it.set, short(it.set), it.setCode, it.number, it.rarity, shortRarity(it.rarity, it.lang === 'Japanese'), it.cert, it.grader, it.grade, it.variant, it.ptype, short(it.ptype), it.source, it.cond, it.lang, it.notes].filter(Boolean).join(' ')); return [h, cmp(h)]; });
+      const res = searchList(inTab.length, i => hays[i], Q);
+      rows = res.list.map(x => inTab[x.i]); vaultPartial = res.partial;
+    }
     rows.sort({
       new: (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
       value: (a, b) => valOf(b) - valOf(a),
@@ -810,8 +820,9 @@
       box.innerHTML = '<div class="empty">' + (q ? 'Nothing matches that search.' : 'Nothing here yet.') + '</div>';
       return;
     }
+    const partialNote = vaultPartial ? '<p class="hint" style="margin:0 0 var(--s3)">No exact match · closest results</p>' : '';
     if (S.view === 'grid'){
-      box.innerHTML = '<div class="grid">' + rows.map(it => {
+      box.innerHTML = partialNote + '<div class="grid">' + rows.map(it => {
         const g = valOf(it) - costOf(it), q = qtyOf(it);
         const meta = [smallLabel(it), short(it.set) || it.number, it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ');
         return '<button class="tile' + (q > 1 ? ' has-qty' : '') + '" data-id="' + esc(it.id) + '" style="--stripe-c:' + STRIPE[kindOf(it)] + '">' +
@@ -823,7 +834,7 @@
         '</button>';
       }).join('') + '</div>';
     } else {
-      box.innerHTML = '<div class="list">' + rows.map(it => {
+      box.innerHTML = partialNote + '<div class="list">' + rows.map(it => {
         const g = valOf(it) - costOf(it);
         const sub = [smallLabel(it), short(it.set), kindOf(it) === 'graded' && it.cert ? '#' + it.cert : (it.number || ''), it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ');
         return '<button class="row" data-id="' + esc(it.id) + '" style="--stripe-c:' + STRIPE[kindOf(it)] + '">' +
@@ -925,7 +936,7 @@
   $$('#kindSeg button').forEach(b => b.addEventListener('click', () => { if (S.kind !== b.dataset.k) S.picked = null; setKind(b.dataset.k); }));
 
   /* ---------- catalog ---------- */
-  let CAT = null, CAT_P = null, HAY = null, SHAY = null, PHAY = null, PRICE = null;
+  let CAT = null, CAT_P = null, HAY = null, SHAY = null, PHAY = null, PRICE = null, HAYC = null, PHAYC = null, SHAYC = null;
   const norm = t => String(t || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   function loadCat(){
     if (CAT_P) return CAT_P;
@@ -937,6 +948,7 @@
       CAT = j;
       HAY = j.cards.map(c => { const st = j.sets[c[0]]; return norm(c[2] + ' ' + (c[4] || '') + ' ' + st[2] + ' ' + st[0] + ' ' + (st[6] || '') + ' ' + c[1] + ' ' + (j.rarities[c[3]] || '')); });
       SHAY = j.sets.map(st => norm(st[2] + ' ' + st[0] + ' ' + st[3] + ' ' + (st[6] || '')));
+      HAYC = HAY.map(cmp); PHAYC = PHAY.map(cmp); SHAYC = SHAY.map(cmp);
       PRICE = new Map(); (j.sealed || []).forEach(r => { if (r[8] || r[9]) PRICE.set('S:' + r[0] + ':' + r[1], [r[8], r[9]]); });
       const ABBR = [[/elite trainer box/i, 'etb'], [/ultra.premium collection/i, 'upc'], [/pok[eé]mon center/i, 'pc pokemoncenter'], [/build ?& ?battle/i, 'b&b bnb'], [/booster box/i, 'bb'], [/booster bundle/i, 'bundle bb'], [/special premium collection/i, 'spc'], [/1-Pack Blister|single pack blister/i, '1pk 1-pack single pack blister'], [/2-Pack Blister/i, '2pk 2-pack two pack blister'], [/3-Pack Blister/i, '3pk 3-pack three pack blister']];
       PHAY = (j.sealed || []).map(r => { const t = r[1] + ' ' + j.sealedTypes[r[3]]; return norm(r[1] + ' ' + r[2] + ' ' + j.sealedTypes[r[3]] + ' ' + ABBR.filter(([rx]) => rx.test(t)).map(x => x[1]).join(' ') + (r[0] === 'JP' ? ' japanese' : '')); });
@@ -945,13 +957,61 @@
     return CAT_P;
   }
   const FIND = { lang: '', timer: null, results: [], act: -1, total: 0 };
-  // A query word matches if it appears in the text, or if it starts with a 4+ letter word of the text ("festival" ~ "fest").
-  function tokHit(h, t){
-    if (h.includes(t)) return true;
-    if (t.length < 5) return false;
-    const words = h.split(' ');
-    for (let i = 0; i < words.length; i++){ const w = words[i]; if (w.length >= 4 && t.startsWith(w)) return true; }
-    return false;
+  // ---------- search matching, shared by every search box ----------
+  // Words can come in any order; punctuation and spaces inside names are ignored ("hooh" = "Ho-Oh");
+  // one-letter typos and short forms count as close matches. If no item has every word,
+  // the items matching the most words are offered as "closest".
+  const cmp = t => String(t).replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff]+/g, '');
+  function within1(a, b){
+    if (a === b) return true;
+    const la = a.length, lb = b.length; if (Math.abs(la - lb) > 1) return false;
+    let i = 0; while (i < la && i < lb && a[i] === b[i]) i++;
+    if (la === lb) return a.slice(i + 1) === b.slice(i + 1) || (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2));
+    return la > lb ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
+  }
+  function makeQuery(raw){
+    const q = norm(raw).trim();
+    const toks = q.split(/[\s\/#,]+/).filter(Boolean).map(t => t.replace(/^0+(?=\d)/, ''));
+    return { q, toks, ctoks: toks.map(cmp) };
+  }
+  // 2 = exact, 1 = close (typo or shortened word), 0 = no match
+  function tokMatch(h, hc, t, tc, fuzzy){
+    if (h.includes(t) || (tc && hc.includes(tc))) return 2;
+    if (!fuzzy || !tc || tc.length < 4) return 0;
+    const words = h.split(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff]+/);
+    for (let k = 0; k < words.length; k++){
+      const w = words[k]; if (w.length < 4) continue;
+      if (within1(w, tc) || (tc.startsWith(w) && w.length * 2 >= tc.length)) return 1;
+    }
+    return 0;
+  }
+  function matchItem(h, hc, Q, fuzzy){
+    let hits = 0, close = 0, strong = false;
+    for (let k = 0; k < Q.toks.length; k++){
+      const m = tokMatch(h, hc, Q.toks[k], Q.ctoks[k], fuzzy);
+      if (m){ hits++; if (m === 1) close++; if (Q.ctoks[k].length >= 3 || /^\d+$/.test(Q.ctoks[k])) strong = true; }
+    }
+    return { all: hits === Q.toks.length, hits, close, strong };
+  }
+  // Runs over n items: first exact (every word), then fuzzy (every word), then closest (most words).
+  function searchList(n, hayAt, Q, accept){
+    for (const fuzzy of [false, true]){
+      const out = [];
+      for (let i = 0; i < n; i++){
+        if (accept && !accept(i)) continue;
+        const [h, hc] = hayAt(i), m = matchItem(h, hc, Q, fuzzy);
+        if (m.all) out.push({ i, close: m.close });
+      }
+      if (out.length) return { list: out, partial: false };
+    }
+    if (Q.toks.length < 2) return { list: [], partial: false };
+    let best = 0; const scored = [];
+    for (let i = 0; i < n; i++){
+      if (accept && !accept(i)) continue;
+      const [h, hc] = hayAt(i), m = matchItem(h, hc, Q, true);
+      if (m.hits && m.strong){ scored.push({ i, hits: m.hits, close: m.close }); if (m.hits > best) best = m.hits; }
+    }
+    return { list: scored.filter(x => x.hits === best), partial: true };
   }
   const fmtNum = (num, total) => (/^\d+$/.test(num) && total ? num + '/' + String(total).padStart(Math.min(num.length, 3), '0') : num);
 
@@ -967,52 +1027,44 @@
       loadCat().then(findSearch, () => { box.innerHTML = '<div class="msg">The card list couldn’t be opened on this page. You can still fill in the details yourself.</div>'; });
       return;
     }
-    const toks = q.split(/[\s\/#]+/).filter(Boolean).map(t => t.replace(/^0+(?=\d)/, ''));
+    const Q = makeQuery($('#findQ').value), toks = Q.toks;
     const out = [];
+    FIND.partial = false;
     if (S.kind === 'sealed'){
       const qn = q.replace(/[-:]/g, ' ').replace(/\s+/g, ' ');
       const bigrams = toks.slice(1).map((t, n) => toks[n] + ' ' + t);
       const wantsCase = /\b(case|display)\b/.test(q);
-      const scan = loose => {
-        const out = [];
-        CAT.sealed.forEach((r, i) => {
-          if (FIND.lang && r[0] !== FIND.lang) return;
-          if (!toks.every(t => loose ? tokHit(PHAY[i], t) : PHAY[i].includes(t))) return;
-          const nm = norm(r[1]).replace(/[-:]/g, ' ').replace(/\s+/g, ' ');
-          let sc = nm === qn ? 0 : 100;
-          bigrams.forEach(bg => { if (nm.includes(bg)) sc -= 10; });
-          if (nm.startsWith(toks[0])) sc -= 5;
-          if (!wantsCase && /\b(case|display)\b/.test(nm)) sc += 40;
-          out.push({ prod: i, score: sc, len: r[1].length });
-        });
-        return out;
-      };
-      let prods = scan(false); if (!prods.length) prods = scan(true);
-      prods.sort((a, b) => a.score - b.score || a.len - b.len);
-      const sets = [];
-      CAT.sets.forEach((st, i) => {
-        if (FIND.lang && st[1] !== FIND.lang) return;
-        if (toks.every(t => SHAY[i].includes(t)) || (!prods.length && toks.every(t => tokHit(SHAY[i], t)))) sets.push({ set: i });
+      const res = searchList(CAT.sealed.length, i => [PHAY[i], PHAYC[i]], Q, i => !FIND.lang || CAT.sealed[i][0] === FIND.lang);
+      const prods = res.list.map(x => {
+        const r = CAT.sealed[x.i], nm = norm(r[1]).replace(/[-:]/g, ' ').replace(/\s+/g, ' ');
+        let sc = nm === qn ? 0 : 100;
+        bigrams.forEach(bg => { if (nm.includes(bg)) sc -= 10; });
+        if (nm.startsWith(toks[0])) sc -= 5;
+        if (!wantsCase && /\b(case|display)\b/.test(nm)) sc += 40;
+        return { prod: x.i, score: sc + x.close * 3, len: r[1].length };
       });
+      prods.sort((a, b) => a.score - b.score || a.len - b.len);
+      const sres = searchList(CAT.sets.length, i => [SHAY[i], SHAYC[i]], Q, i => !FIND.lang || CAT.sets[i][1] === FIND.lang);
+      const sets = (prods.length && sres.partial) ? [] : sres.list.map(x => ({ set: x.i }));
       sets.sort((a, b) => (CAT.sets[b.set][5] || '').localeCompare(CAT.sets[a.set][5] || ''));
+      FIND.partial = res.partial && prods.length > 0;
       out.push(...prods.slice(0, 50), ...sets.slice(0, 6));
     } else {
-      for (let pass = 0; pass < 2 && !out.length; pass++)
-      for (let i = 0; i < HAY.length && out.length < 600; i++){
-        const c = CAT.cards[i];
-        if (FIND.lang && CAT.sets[c[0]][1] !== FIND.lang) continue;
-        const h = HAY[i];
-        if (!toks.every(t => pass ? tokHit(h, t) : h.includes(t))) continue;
-        const nm = norm(c[2]), al = norm(c[4] || '');
-        const score = (nm === q || al === q) ? 0 : (nm.startsWith(toks[0]) || al.startsWith(toks[0])) ? 1 : 2;
-        out.push({ card: i, score });
-      }
+      const res = searchList(HAY.length, i => [HAY[i], HAYC[i]], Q, i => !FIND.lang || CAT.sets[CAT.cards[i][0]][1] === FIND.lang);
+      FIND.partial = res.partial;
+      const qc = cmp(q);
+      res.list.forEach(x => {
+        const c = CAT.cards[x.i], nm = cmp(norm(c[2])), al = cmp(norm(c[4] || ''));
+        const score = (nm === qc || al === qc) ? 0 : (nm.startsWith(Q.ctoks[0]) || al.startsWith(Q.ctoks[0])) ? 1 : 2;
+        const st = CAT.sets[c[0]], isPromo = /promo/i.test(st[2] + ' ' + (st[6] || '') + ' ' + (CAT.rarities[c[3]] || ''));
+        out.push({ card: x.i, score: score + x.close - (S.kind === 'promo' && isPromo ? 2 : 0) });
+      });
       out.sort((a, b) => a.score - b.score || (CAT.sets[CAT.cards[b.card][0]][5] || '').localeCompare(CAT.sets[CAT.cards[a.card][0]][5] || ''));
     }
     FIND.total = out.length;
     FIND.results = S.kind === 'sealed' ? out : out.slice(0, 60);
     if (!FIND.results.length){ box.innerHTML = '<div class="msg">No matches. Try fewer words, or fill in the details yourself.</div>'; return; }
-    box.innerHTML = FIND.results.map((r, k) => {
+    box.innerHTML = (FIND.partial ? '<div class="more">No exact match · closest results</div>' : '') + FIND.results.map((r, k) => {
       if (r.prod !== undefined){
         const p = CAT.sealed[r.prod];
         return '<button type="button" class="hit" data-k="' + k + '"><div class="hit-n"><span>' + hl(short(p[1])) + '</span><span class="tagl">' + (p[0] === 'JP' ? 'JP' : 'EN') + '</span></div><div class="hit-s">' + esc([short(CAT.sealedTypes[p[3]]), short(p[2]), p[4] ? p[4].slice(0, 4) : ''].filter(Boolean).join(' · ')) + '</div></button>';
@@ -1027,8 +1079,17 @@
     }).join('') + (FIND.total > FIND.results.length ? '<div class="more">Showing ' + FIND.results.length + ' of ' + FIND.total + ' · type more to narrow down</div>' : '');
     box.scrollTop = 0;
   }
-  function openHits(){ $('#hits').hidden = false; $('#fwrap').classList.add('open'); $('#findQ').setAttribute('aria-expanded', 'true'); }
-  function closeHits(){ $('#hits').hidden = true; $('#fwrap').classList.remove('open'); $('#findQ').setAttribute('aria-expanded', 'false'); }
+  function openHits(){ $('#hits').hidden = false; $('#fwrap').classList.add('open'); $('#findQ').setAttribute('aria-expanded', 'true'); if (FLOW.active) $('#flowSheet').classList.add('searching'); }
+  function closeHits(){ $('#hits').hidden = true; $('#fwrap').classList.remove('open'); $('#findQ').setAttribute('aria-expanded', 'false'); $('#flowSheet').classList.remove('searching'); }
+  // Scrolling the suggestions closes the keyboard, so the whole list is reachable.
+  let hitsTouchY = null;
+  $('#hits').addEventListener('touchstart', e => { hitsTouchY = e.touches[0].clientY; }, { passive: true });
+  $('#hits').addEventListener('touchmove', e => {
+    if (hitsTouchY != null && Math.abs(e.touches[0].clientY - hitsTouchY) > 8 && document.activeElement === $('#findQ')) $('#findQ').blur();
+  }, { passive: true });
+  $('#hits').addEventListener('wheel', () => { if (document.activeElement === $('#findQ')) $('#findQ').blur(); }, { passive: true });
+  // In the edit form, bring the search box to the top so its suggestions have room above the keyboard.
+  $('#findQ').addEventListener('focus', () => { if (!FLOW.active) setTimeout(() => $('#fwrap').scrollIntoView({ block: 'start', behavior: 'smooth' }), 300); });
   // Bold the parts of a suggestion that match what was typed.
   function hl(text){
     const raw = String(text || ''), low = raw.toLowerCase();
