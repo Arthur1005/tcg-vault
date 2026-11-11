@@ -295,6 +295,14 @@
   .split-total span{font-size:10px;line-height:16px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}
   .split-total b{font-family:"Cormorant Garamond",Georgia,serif;font-size:24px;line-height:28px;font-weight:600}
   #editSplit .linkbtn{margin-top:0}
+  .stack{display:flex;flex-direction:column;gap:var(--s2)}
+  .stack .btn{flex:none}
+  .filebtn{display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .filebtn input{display:none}
+  .nudge{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);flex-wrap:wrap;margin-bottom:var(--s4);padding:var(--s4);border:1px solid var(--gold);border-radius:var(--rc);background:var(--tint)}
+  .nudge b{display:block;font-weight:700}
+  .nudge span{display:block;font-size:12px;line-height:16px;color:var(--muted);margin-top:var(--s1)}
+  .nudge-btns{display:flex;gap:var(--s2);margin-left:auto}
   .toast{position:fixed;left:50%;bottom:calc(var(--sab) + 96px);transform:translateX(-50%) translateY(16px);background:var(--ink);color:#f7f4ee;padding:var(--s2) var(--s4);border-radius:var(--rp);font-size:14px;opacity:0;transition:.2s;pointer-events:none;z-index:30}
   .toast.show{opacity:1;transform:translateX(-50%)}
 </style>
@@ -316,6 +324,8 @@
   <div class="banner" id="banner"></div>
 
   <div class="chips" id="chips"></div>
+
+  <div class="nudge" id="nudge" hidden></div>
 
   <div class="summary" id="summary"></div>
 
@@ -513,11 +523,17 @@
     </select>
   </div>
   <div class="section-t">Backup</div>
-  <p class="hint">Copies your whole collection as text you can paste into Notes or an email to keep as a backup.</p>
-  <button type="button" class="btn ghost block" id="copyBackup">Copy backup</button>
+  <p class="hint" id="backupHint">Saves your whole collection, photos included.</p>
+  <div class="stack">
+    <button type="button" class="btn primary block" id="saveBackupFile" hidden>Save backup file</button>
+    <button type="button" class="btn ghost block" id="copyBackup">Copy backup</button>
+  </div>
   <div class="section-t">Restore / import</div>
   <div class="f"><textarea id="importText" placeholder="Paste a backup here"></textarea></div>
-  <button type="button" class="btn ghost block" id="importBtn">Import items</button>
+  <div class="stack">
+    <label class="btn ghost block filebtn" id="restoreFileBtn" hidden>Restore from file<input type="file" id="restoreFile" accept=".json,application/json,text/plain"></label>
+    <button type="button" class="btn ghost block" id="importBtn">Import pasted backup</button>
+  </div>
   <div class="err" id="importMsg"></div>
   <p class="credits">Card and product lists: pokemon-tcg-data and TCGdex (MIT); sealed products from pkmjson by ArthurG-data (CC BY 4.0), the TCGplayer catalogue via TCGCSV / pokesave-data, and the Cardmarket catalogue via binder-tcg-data. Updated 11 Nov 2026.</p>
 </div>
@@ -730,6 +746,7 @@
 
   /* ---------- render ---------- */
   function render(){
+    renderNudge();
     const inTab = S.items.filter(it => S.tab === 'all' || kindOf(it) === S.tab);
     const cost = inTab.reduce((a, it) => a + costOf(it), 0);
     const val = inTab.reduce((a, it) => a + valOf(it), 0);
@@ -1600,21 +1617,38 @@
     S.currency = e.target.value; render();
     if (S.db && S.canWrite){ try { await S.db.doc('settings/main').set({currency:S.currency}); } catch(err){ toast(handleWriteError(err)); } }
   });
-  $('#copyBackup').addEventListener('click', async () => {
-    // Photos travel inside the backup as their small copies, keyed by position in the items list.
+  // A backup is plain JSON: items plus the small photo copies, keyed by position in the list.
+  function backupJSON(){
     const data = S.items.map(({id, ...rest}) => rest);
     const thumbs = {}; S.items.forEach((it, i) => { const t = THUMBS.get(it.id); if (t) thumbs[i] = t; });
-    try { await navigator.clipboard.writeText(JSON.stringify({vault:2, currency:S.currency, items:data, thumbs})); toast('Backup copied (' + data.length + ' items, ' + Object.keys(thumbs).length + ' photos)'); }
+    return { text: JSON.stringify({vault:2, savedAt: new Date().toISOString(), currency:S.currency, items:data, thumbs}), items: data.length, photos: Object.keys(thumbs).length };
+  }
+  function markBackedUp(){ try { localStorage.setItem('vault.lastBackup', String(Date.now())); } catch(e) {} renderNudge(); }
+  $('#copyBackup').addEventListener('click', async () => {
+    const b = backupJSON();
+    try { await navigator.clipboard.writeText(b.text); markBackedUp(); toast('Backup copied (' + b.items + ' items, ' + b.photos + ' photos)'); }
     catch(e){ toast('Couldn’t copy on this device'); }
   });
-  $('#importBtn').addEventListener('click', async () => {
+  // Standalone app only (the Claude page can't save files): share the backup as a file, e.g. Save to Files → iCloud Drive.
+  async function saveBackupFile(){
+    const b = backupJSON();
+    const name = 'tcg-vault-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    const file = new File([b.text], name, { type: 'application/json' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })){ await navigator.share({ files: [file], title: 'TCG Vault backup' }); markBackedUp(); toast('Backup saved'); return; }
+    } catch(e){ if (e && e.name === 'AbortError') return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    markBackedUp(); toast('Backup file downloaded');
+  }
+  async function importBackup(text, btn){
     const msg = $('#importMsg');
     if (!S.canWrite){ msg.textContent = 'This vault is view-only for you.'; return; }
     let parsed;
-    try { parsed = JSON.parse($('#importText').value); } catch(e){ msg.textContent = 'That doesn’t look like a backup.'; return; }
+    try { parsed = JSON.parse(text); } catch(e){ msg.textContent = 'That doesn’t look like a backup.'; return; }
     const list = Array.isArray(parsed) ? parsed : (parsed && parsed.items);
     if (!Array.isArray(list) || !list.length){ msg.textContent = 'No items found in that backup.'; return; }
-    const btn = $('#importBtn'); btn.disabled = true;
+    const label = btn.textContent; btn.disabled = true;
     let n = 0;
     try {
       const thumbs = (parsed && parsed.thumbs) || {};
@@ -1634,8 +1668,29 @@
       msg.textContent = ''; $('#importText').value = '';
       toast('Imported ' + n + ' items'); render();
     } catch(err){ msg.textContent = 'Imported ' + n + ', then stopped: ' + handleWriteError(err); }
-    finally { btn.disabled = false; btn.textContent = 'Import items'; }
+    finally { btn.disabled = false; btn.textContent = label; }
+  }
+  $('#importBtn').addEventListener('click', () => importBackup($('#importText').value, $('#importBtn')));
+  $('#saveBackupFile').addEventListener('click', saveBackupFile);
+  $('#restoreFile').addEventListener('change', async e => {
+    const f = e.target.files && e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try { await importBackup(await f.text(), $('#restoreFileBtn')); } catch(err){ $('#importMsg').textContent = 'Couldn’t read that file.'; }
   });
+
+  // Monthly nudge: if the last backup is over 30 days old (and there's something to back up), show a card on the home page.
+  function renderNudge(){
+    const el = $('#nudge'); if (!el) return;
+    let last = 0; try { last = +localStorage.getItem('vault.lastBackup') || 0; } catch(e) {}
+    let snooze = 0; try { snooze = +localStorage.getItem('vault.nudgeSnooze') || 0; } catch(e) {}
+    const due = S.canWrite && S.items.length > 0 && Date.now() - last > 30 * 864e5 && Date.now() > snooze;
+    el.hidden = !due;
+    if (!due) return;
+    el.innerHTML = '<div><b>' + (last ? 'Last backup ' + Math.floor((Date.now() - last) / 864e5) + ' days ago' : 'Back up your vault') + '</b><span>Keeps your collection and photos safe if you change phones.</span></div>' +
+      '<div class="nudge-btns"><button type="button" class="pill" id="nudgeLater">Later</button><button type="button" class="pill gold" id="nudgeGo">Back up now</button></div>';
+    $('#nudgeLater').onclick = () => { try { localStorage.setItem('vault.nudgeSnooze', String(Date.now() + 7 * 864e5)); } catch(e) {} el.hidden = true; };
+    $('#nudgeGo').onclick = () => { if (window.__STANDALONE) saveBackupFile(); else $('#copyBackup').click(); };
+  }
 
   /* ---------- misc ---------- */
   let toastT;
@@ -1664,6 +1719,7 @@
 
   /* ---------- data ---------- */
   async function init(){
+    if (window.__STANDALONE){ $('#saveBackupFile').hidden = false; $('#restoreFileBtn').hidden = false; $('#backupHint').textContent = 'Saves your whole collection, photos included. Save the file to Files → iCloud Drive to keep it safe.'; }
     render();
     loadCat().then(render, () => {});
     const C = window.claude;
