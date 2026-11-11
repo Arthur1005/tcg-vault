@@ -62,6 +62,10 @@
   .chip .n{color:var(--muted);font-size:12px}
   .chip.on{border-color:var(--ink);background:var(--ink);color:#f7f4ee}
   .chip.on .n{color:var(--gold2)}
+  .chips.sub{margin-top:calc(-1 * var(--s2))}
+  .chips.sub .chip{height:32px;padding:0 var(--s3);font-size:12px}
+  .chips.sub .chip.on{background:var(--tint);border-color:var(--gold);color:var(--ink)}
+  .chips.sub .chip.on .n{color:var(--gold)}
 
   /* summary — same left inset as the tiles and rows (stripe + 12) and one shared value size so all three figures sit on one baseline */
   .summary{background:var(--surface);border-radius:var(--rc);box-shadow:var(--shadow);border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:var(--s4);display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:var(--s2);margin-bottom:var(--s5);border-left:1px solid var(--line)}
@@ -324,6 +328,7 @@
   <div class="banner" id="banner"></div>
 
   <div class="chips" id="chips"></div>
+  <div class="chips sub" id="subchips" hidden></div>
 
   <div class="nudge" id="nudge" hidden></div>
 
@@ -614,6 +619,7 @@
     const t = localStorage.getItem('vault.tab'); if (t && (t === 'all' || KINDS[t])) S.tab = t;
     const so = localStorage.getItem('vault.sort'); if (so) S.sort = so;
     const v = localStorage.getItem('vault.view'); if (v) S.view = v;
+    S.sub = localStorage.getItem('vault.sub') || '';
   } catch(e) {}
 
   /* ---------- money ---------- */
@@ -747,7 +753,23 @@
   /* ---------- render ---------- */
   function render(){
     renderNudge();
-    const inTab = S.items.filter(it => S.tab === 'all' || kindOf(it) === S.tab);
+    // Sealed tab: second row of filters built from the product types actually in the vault.
+    const typeOf = it => it.ptype || 'Other';
+    const sealedTypes = new Map();
+    S.items.filter(it => kindOf(it) === 'sealed').forEach(it => sealedTypes.set(typeOf(it), (sealedTypes.get(typeOf(it)) || 0) + qtyOf(it)));
+    // Forget the filter only once items have loaded and that type is genuinely gone.
+    if (S.sub && S.items.length && !sealedTypes.has(S.sub)) S.sub = '';
+    const subOn = S.tab === 'sealed' && S.sub;
+    const subBox = $('#subchips');
+    subBox.hidden = !(S.tab === 'sealed' && sealedTypes.size > 1);
+    if (!subBox.hidden){
+      const order = ['Booster Box','Elite Trainer Box','Booster Bundle','Booster Pack','1-Pack Blister','2-Pack Blister','3-Pack Blister','Checklane Blister','Blister','Tin','Collection Box','Premium Collection','Build & Battle','Case','Other'];
+      const types = [...sealedTypes.keys()].sort((a, b) => ((order.indexOf(a) + 1) || 99) - ((order.indexOf(b) + 1) || 99) || a.localeCompare(b));
+      const total = [...sealedTypes.values()].reduce((a, b) => a + b, 0);
+      subBox.innerHTML = '<button class="chip' + (!subOn ? ' on' : '') + '" data-sub="">All <span class="n">' + total + '</span></button>' +
+        types.map(t => '<button class="chip' + (subOn && S.sub === t ? ' on' : '') + '" data-sub="' + esc(t) + '">' + esc(short(t)) + ' <span class="n">' + sealedTypes.get(t) + '</span></button>').join('');
+    }
+    const inTab = S.items.filter(it => (S.tab === 'all' || kindOf(it) === S.tab) && (!subOn || typeOf(it) === S.sub));
     const cost = inTab.reduce((a, it) => a + costOf(it), 0);
     const val = inTab.reduce((a, it) => a + valOf(it), 0);
     const gain = val - cost;
@@ -765,7 +787,7 @@
       '<button class="chip' + (S.tab === k ? ' on' : '') + '" data-tab="' + k + '">' +
       (k !== 'all' ? '<span class="dot" style="background:' + STRIPE[k] + '"></span>' : '') +
       n + ' <span class="n">' + count(k) + '</span></button>').join('');
-    $('#tabLabel').textContent = S.tab === 'all' ? 'All items' : 'All ' + KINDS[S.tab].toLowerCase();
+    $('#tabLabel').textContent = subOn ? 'Sealed · ' + short(S.sub) : S.tab === 'all' ? 'All items' : 'All ' + KINDS[S.tab].toLowerCase();
     $('#vGrid').classList.toggle('on', S.view === 'grid');
     $('#vList').classList.toggle('on', S.view === 'list');
 
@@ -1592,6 +1614,11 @@
 
   /* ---------- page events ---------- */
   $('#items').addEventListener('click', e => { const b = e.target.closest('[data-id]'); if (b) openDetail(b.dataset.id); });
+  $('#subchips').addEventListener('click', e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    S.sub = b.dataset.sub; try { localStorage.setItem('vault.sub', S.sub); } catch(e) {}
+    render();
+  });
   $('#chips').addEventListener('click', e => {
     const b = e.target.closest('.chip'); if (!b) return;
     S.tab = b.dataset.tab; try { localStorage.setItem('vault.tab', S.tab); } catch(e) {}
