@@ -238,6 +238,7 @@
   .hit-th img{width:100%;height:100%;object-fit:cover}
   .hit-type{flex:none;width:36px;height:36px;border-radius:50%;background:color-mix(in srgb, var(--tc) 22%, var(--surface));box-shadow:inset 0 0 0 1.5px var(--tc);font-size:17px;display:grid;place-items:center}
   .hit-ill{font-style:italic}
+  .hits .hit-sec{background:var(--tint);border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--muted)}
   .hit-eye{flex:none;width:40px;height:40px;display:grid;place-items:center;border-radius:var(--rp);border:1px solid var(--line2);background:var(--surface);text-decoration:none;font-size:16px}
   .hit-n .en{font-size:12px;font-weight:500;color:var(--muted)}
   .hit-s{font-size:12px;line-height:16px;color:var(--muted);margin-top:var(--s1)}
@@ -454,7 +455,7 @@
         <option>Box / collection promo</option><option>Pre-release / Build &amp; Battle</option>
         <option>Tournament / League</option><option>Event / Pokémon Center</option>
         <option>Magazine / book</option><option>Movie / anniversary</option>
-        <option>Retail exclusive</option><option>Other</option>
+        <option>EB Games</option><option>Retail exclusive</option><option>Other</option>
       </select>
     </div>
 
@@ -471,7 +472,7 @@
     <div class="f" data-for="promo"><label for="f-cond">Condition</label>
       <select id="f-cond"><option>NM</option><option>LP</option><option>MP</option><option>HP</option><option>DMG</option><option>Sealed</option></select>
     </div>
-    <div class="f" data-for="promo graded"><label for="f-variant">Stamp / variant</label><input id="f-variant" placeholder="Stamped, Staff, Holo…"></div>
+    <div class="f" data-for="promo graded"><label for="f-variant">Stamp / variant</label><input id="f-variant" placeholder="e.g. Prerelease stamp, Staff, Cosmos Holo"></div>
     <div class="f"><label for="f-lang">Language</label>
       <select id="f-lang"><option>English</option><option>Japanese</option><option>Korean</option><option>Chinese (S)</option><option>Chinese (T)</option><option>Thai</option><option>Indonesian</option><option>Other</option></select>
     </div>
@@ -792,7 +793,7 @@
     const k = kindOf(it);
     if (k === 'graded') return (it.grader || 'Graded') + (it.grade ? ' ' + it.grade : '');
     if (k === 'sealed') return short(it.ptype) || 'Sealed';
-    return 'Promo' + (it.cond ? ' · ' + it.cond : '');
+    return 'Promo' + (it.variant ? ' · ' + it.variant : it.cond ? ' · ' + it.cond : '');
   }
 
   /* ---------- render ---------- */
@@ -1100,7 +1101,7 @@
     } else {
       // Promo flow searches promo cards only; Graded searches every card (a slab can be anything).
       const promoOnly = S.kind === 'promo';
-      const res = searchList(HAY.length, i => [HAY[i], HAYC[i]], Q, i => (!promoOnly || PROMOSET[CAT.cards[i][0]]) && (!FIND.lang || CAT.sets[CAT.cards[i][0]][1] === FIND.lang));
+      const res = searchList(HAY.length, i => [HAY[i], HAYC[i]], Q, i => !FIND.lang || CAT.sets[CAT.cards[i][0]][1] === FIND.lang);
       FIND.partial = res.partial;
       const qc = cmp(q);
       res.list.forEach(x => {
@@ -1109,14 +1110,18 @@
         const st = CAT.sets[c[0]], isPromo = /promo/i.test(st[2] + ' ' + (st[6] || '') + ' ' + (CAT.rarities[c[3]] || ''));
         // Closest-match mode: words that hit the card's own name matter more than words that only hit a set name.
         const nameHay = norm(c[2] + ' ' + (c[4] || '')), nameHits = res.partial ? Q.toks.filter((t, k) => tokMatch(nameHay, cmp(nameHay), t, Q.ctoks[k], true, Q.res[k])).length : 0;
-        out.push({ card: x.i, score: score + x.close - (S.kind === 'promo' && isPromo ? 2 : 0) - nameHits * 10 });
+        // Promo flow: promo-set cards first, then regular printings (stamped promos are regular cards with a stamp).
+        out.push({ card: x.i, promo: isPromo, score: score + x.close - (promoOnly && PROMOSET[c[0]] ? 1000 : 0) - nameHits * 10 });
       });
       out.sort((a, b) => a.score - b.score || (CAT.sets[CAT.cards[b.card][0]][5] || '').localeCompare(CAT.sets[CAT.cards[a.card][0]][5] || ''));
     }
     FIND.total = out.length;
-    FIND.results = S.kind === 'sealed' ? out : out.slice(0, 60);
+    FIND.results = S.kind === 'sealed' ? out : out.slice(0, 80);
     if (!FIND.results.length){ box.innerHTML = '<div class="msg">No matches. Try fewer words, or fill in the details yourself.</div>'; return; }
+    let shownOther = false;
     box.innerHTML = (FIND.partial ? '<div class="more">No exact match · closest results</div>' : '') + FIND.results.map((r, k) => {
+      let head = '';
+      if (S.kind === 'promo' && r.card !== undefined && !PROMOSET[CAT.cards[r.card][0]] && !shownOther){ shownOther = true; head = '<div class="more hit-sec">Stamped promos & other printings · pick the card, add the stamp next</div>'; }
       if (r.prod !== undefined){
         const p = CAT.sealed[r.prod];
         return '<button type="button" class="hit" data-k="' + k + '"><div class="hit-n"><span>' + hl(short(p[1])) + '</span><span class="tagl">' + (p[0] === 'JP' ? 'JP' : 'EN') + '</span></div><div class="hit-s">' + esc([short(CAT.sealedTypes[p[3]]), short(p[2]), p[4] ? p[4].slice(0, 4) : ''].filter(Boolean).join(' · ')) + '</div></button>';
@@ -1133,7 +1138,7 @@
         : '<span class="hit-type" style="--tc:' + (TYPE_COLOR[tc] || 'var(--line2)') + '" title="' + esc(TYPE_NAME[tc] || '') + '" aria-label="' + esc(TYPE_NAME[tc] || '') + '">' + (TYPE_ICON[tc] || '') + '</span>';
       const alt = (/[\u3400-\u9fff]/.test($('#findQ').value) && c[5]) ? c[5].split(' ').slice(0, 2).join(' ') : (c[4] || '');
       const q = [c[4] || c[2], st[0], c[1], st[1] === 'JP' ? 'Japanese' : '', 'Pokemon card'].filter(Boolean).join(' ');
-      return '<div class="hit hit-card" role="option" data-k="' + k + '" tabindex="-1">' + thumb +
+      return head + '<div class="hit hit-card" role="option" data-k="' + k + '" tabindex="-1">' + thumb +
         '<div class="hit-body"><div class="hit-n"><span>' + hl(c[2]) + '</span>' + (alt ? '<span class="en">' + hl(alt) + '</span>' : '') + '<span class="tagl">' + st[1] + '</span></div>' +
         '<div class="hit-s">' + esc([short(st[2]), fmtNum(c[1], st[4]), shortRarity(rar, st[1] === 'JP'), (st[5] || '').slice(0, 4)].filter(Boolean).join(' · ')) + '</div>' +
         (artist ? '<div class="hit-s hit-ill">Illus. ' + esc(artist) + '</div>' : '') + '</div>' +
@@ -1626,7 +1631,7 @@
       });
     }
     else if (id === 'item'){
-      T(k === 'sealed' ? 'Which product?' : k === 'promo' ? 'Which promo?' : 'Which card?', k === 'sealed' ? 'Search English and Japanese sealed products.' : k === 'promo' ? 'Promo cards only: Black Star, Japanese promos, McDonald’s, POP and more.' : 'Search any card by name, set or number, in English or Japanese.');
+      T(k === 'sealed' ? 'Which product?' : k === 'promo' ? 'Which promo?' : 'Which card?', k === 'sealed' ? 'Search English and Japanese sealed products.' : k === 'promo' ? 'Promo sets first. For a stamped promo, pick the regular card: you’ll add the stamp next.' : 'Search any card by name, set or number, in English or Japanese.');
       borrow($('.finder'));
       if (FLOW.manual || (F('name').value && !(S.picked && S.picked.catId))){
         gap();
@@ -1642,8 +1647,15 @@
     }
     else if (id === 'cond'){ T('What condition is it in?'); body.appendChild(chipsFor('cond', () => setTimeout(() => flowGo(1), 160))); }
     else if (id === 'source'){
-      T('Where did it come from?', 'Optional, but handy for promos.');
-      body.appendChild(chipsFor('source')); gap(); borrow(fieldBox('variant'));
+      T('Which stamp?', 'Tap a stamp if your card has one, or type your own. Optional.');
+      const STAMPS = ['Prerelease', 'Staff', 'Pokémon Center', 'EB Games', 'Build & Battle', 'League', 'Championship', 'Illustration Contest', 'Pokémon Day', 'Cosmos Holo', 'Holiday Calendar', 'Toys R Us'];
+      const cur = () => F('variant').value.trim();
+      add('<div class="choice" id="stampChips">' + STAMPS.map(t => '<button type="button" data-s="' + esc(t) + '">' + esc(t) + '</button>').join('') + '</div><div class="flow-gap"></div>');
+      const sync = () => $$('#stampChips button').forEach(b => b.classList.toggle('on', cur() === b.dataset.s + ' stamp' || cur() === b.dataset.s));
+      $$('#stampChips button').forEach(b => b.onclick = () => { F('variant').value = (cur() === b.dataset.s + ' stamp' || cur() === b.dataset.s) ? '' : (b.dataset.s === 'Cosmos Holo' ? 'Cosmos Holo' : b.dataset.s + ' stamp'); sync(); });
+      borrow(fieldBox('variant')); F('variant').oninput = sync; sync();
+      add('<div class="flow-gap"></div><label class="flabel">Where it came from</label>');
+      body.appendChild(chipsFor('source'));
     }
     else if (id === 'grading'){
       T('Grading details');
