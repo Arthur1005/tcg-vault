@@ -115,8 +115,9 @@
   .tile:active{background:var(--tint)}
   .t-name{font-family:"Cormorant Garamond",Georgia,serif;font-size:19px;line-height:20px;height:40px;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .tile.has-qty .t-name{padding-right:var(--s6)}
-  .t-art{height:136px;display:grid;place-items:center}
-  .t-art img{max-width:100%;max-height:136px;border-radius:var(--s2);box-shadow:0 4px 12px rgba(28,26,23,.18)}
+  /* white mat behind every picture so its edges never touch the tile, row or text around it */
+  .t-art{height:144px;display:grid;place-items:center;background:#fff;border:1px solid var(--line);border-radius:var(--rc);padding:var(--s3);box-sizing:border-box}
+  .t-art img{max-width:72%;max-height:104px;border-radius:var(--s1);box-shadow:0 2px 8px rgba(28,26,23,.14)}
   .t-meta{display:flex;align-items:center;gap:var(--s2);min-width:0;font-size:12px;line-height:16px;color:var(--muted)}
   .t-meta span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .kdot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--stripe-c)}
@@ -128,8 +129,8 @@
   /* list rows */
   .list{display:flex;flex-direction:column;gap:var(--s2)}
   .row{position:relative;display:flex;gap:var(--s3);align-items:center;width:100%;min-height:88px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:var(--rc);box-shadow:var(--shadow);padding:var(--s3) var(--s4);cursor:pointer;overflow:hidden}
-  .r-th{flex:0 0 48px;height:64px;display:grid;place-items:center}
-  .r-th img{max-width:48px;max-height:64px;border-radius:var(--s1)}
+  .r-th{flex:0 0 56px;height:72px;display:grid;place-items:center;background:#fff;border:1px solid var(--line);border-radius:var(--s2);padding:var(--s1);box-sizing:border-box}
+  .r-th img{max-width:40px;max-height:56px;border-radius:2px}
   .r-m{flex:1;min-width:0}
   .r-m .n{font-family:"Cormorant Garamond",Georgia,serif;font-size:18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .r-m .s{display:flex;align-items:center;gap:var(--s2);font-size:12px;line-height:16px;color:var(--muted);margin-top:var(--s1);min-width:0}
@@ -154,8 +155,8 @@
   .detail{position:fixed;inset:0;z-index:12;background:rgba(247,244,238,.72);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:var(--s4);padding:calc(var(--sat) + var(--s5)) var(--s5) calc(var(--sab) + var(--s5));overflow-y:auto}
   .detail.open{display:flex;animation:fade .18s ease-out}
   @keyframes fade{from{opacity:0}to{opacity:1}}
-  .d-art{width:min(296px,76vw);display:flex;flex-direction:column;align-items:center}
-  .d-art img{width:100%;border-radius:var(--s3);box-shadow:0 12px 40px rgba(28,26,23,.22)}
+  .d-art{width:min(232px,62vw);display:flex;flex-direction:column;align-items:center}
+  .d-art img{width:100%;box-sizing:border-box;background:#fff;padding:var(--s3);border-radius:var(--s3);box-shadow:0 12px 40px rgba(28,26,23,.22)}
   .d-art .ph{width:152px;height:200px;background:var(--surface);border-radius:var(--rc);box-shadow:var(--shadow);display:grid;place-items:center}
   .d-card{width:min(384px,100%);background:var(--surface);border-radius:var(--rc);border:1px solid var(--line);box-shadow:0 12px 40px rgba(28,26,23,.10);padding:var(--s4)}
   .d-title{font-family:"Cormorant Garamond",Georgia,serif;font-size:24px;line-height:28px;font-weight:600}
@@ -255,8 +256,8 @@
   .hit-n{font-weight:600;display:flex;align-items:baseline;gap:var(--s2)}
   .hit-card{display:flex;align-items:center;gap:var(--s3)}
   .hit-body{flex:1;min-width:0}
-  .hit-th{flex:none;width:40px;height:56px;border-radius:4px;overflow:hidden;background:var(--tint);display:grid;place-items:center}
-  .hit-th img{width:100%;height:100%;object-fit:cover}
+  .hit-th{flex:none;width:40px;height:56px;border-radius:4px;overflow:hidden;background:#fff;border:1px solid var(--line);padding:2px;box-sizing:border-box;display:grid;place-items:center}
+  .hit-th img{width:100%;height:100%;object-fit:contain}
   .hit-type{flex:none;width:36px;height:36px;border-radius:50%;background:color-mix(in srgb, var(--tc) 22%, var(--surface));box-shadow:inset 0 0 0 1.5px var(--tc);font-size:17px;display:grid;place-items:center}
   .hit-ill{font-style:italic}
   .hits .hit-sec{background:var(--tint);border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--muted)}
