@@ -566,6 +566,13 @@
       <option value="AUD">AUD</option><option value="TWD">NTD (TWD)</option><option value="USD">USD</option><option value="JPY">JPY</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="CAD">CAD</option><option value="NZD">NZD</option><option value="SGD">SGD</option>
     </select>
   </div>
+  <div id="ptBox" hidden>
+    <div class="section-t">Live prices</div>
+    <p class="hint">Prices come from PokeTrace: eBay sold first, then TCGplayer. Paste your PokeTrace API key. It stays on this phone and isn’t included in backups.</p>
+    <div class="f"><input id="ptKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="PokeTrace API key"></div>
+    <div class="stack"><button type="button" class="btn primary block" id="ptSave">Save key and check prices</button></div>
+    <p class="hint" id="ptMsg" style="margin-top:var(--s2)"></p>
+  </div>
   <div class="section-t">Backup</div>
   <p class="hint" id="backupHint">Saves your whole collection, photos included.</p>
   <div class="stack">
@@ -751,6 +758,112 @@
     } finally { liveBusy = false; }
     render();
   }
+  /* ---------- PokeTrace: eBay sold first, then TCGplayer (Home Screen app only) ----------
+     Free plan: 100 requests a day, one every 2 seconds. Each item is looked up once to find its PokeTrace card,
+     then refreshed daily (up to 20 per request when it has a TCGplayer id). The key lives only in this browser. */
+  const PT_API = 'https://api.poketrace.com/v2';
+  let PT = { m: {}, p: {}, day: '' };   // m: item key -> { id, tcg } | { none: day }   p: PokeTrace id -> prices
+  try { const x = JSON.parse(localStorage.getItem('vault.pt') || 'null'); if (x && x.m) PT = Object.assign(PT, x); } catch(e) {}
+  const savePT = () => { try { localStorage.setItem('vault.pt', JSON.stringify(PT)); } catch(e) {} };
+  const ptKey = () => { try { return localStorage.getItem('vault.ptkey') || ''; } catch(e) { return ''; } };
+  const utcDay = () => new Date().toISOString().slice(0, 10);
+  function ptBudget(){ try { const b = JSON.parse(localStorage.getItem('vault.ptuse') || '{}'); return b.d === utcDay() ? b.n : 0; } catch(e) { return 0; } }
+  function ptSpend(){ try { localStorage.setItem('vault.ptuse', JSON.stringify({ d: utcDay(), n: ptBudget() + 1 })); } catch(e) {} }
+  const PT_DAILY = 90; // leave a little headroom under the free plan's 100
+  let ptLast = 0;
+  async function ptGet(path){
+    if (ptBudget() >= PT_DAILY) throw new Error('budget');
+    const wait = ptLast + 2100 - Date.now(); if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    ptLast = Date.now(); ptSpend();
+    const r = await fetch(PT_API + path, { headers: { 'X-API-Key': ptKey() } });
+    if (r.status === 401 || r.status === 403) throw new Error('key');
+    if (r.status === 429) throw new Error('budget');
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  }
+  const ptItemKey = it => (it.catId || ('N:' + kindOf(it) + ':' + (it.name || ''))) + '|' + String(it.variant || '').trim().toLowerCase();
+  const compact = t => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  const digits = n => String(n || '').split('/')[0].replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  const STAMP_MARK = /\(|stamp|promo|prerelease|staff|league|championship|exclusive|pokemon center|eb games|gamestop/i;
+  function ptPick(list, it){
+    const k = kindOf(it), stamp = compact(String(it.variant || '').replace(/stamp/ig, ''));
+    let c = list.filter(x => (x.productType || 'single') === (k === 'sealed' ? 'sealed' : 'single'));
+    if (k !== 'sealed' && it.number){ const dn = digits(it.number); const byNum = c.filter(x => digits(x.cardNumber) === dn); if (byNum.length) c = byNum; }
+    if (!c.length) return null;
+    const label = x => compact([x.name, x.variant, x.rarity, x.set && x.set.name].join(' '));
+    if (k === 'sealed'){ const want = compact(String(it.catId || '').split(':').slice(2).join(':') || it.name); return c.find(x => compact(x.name) === want) || c.find(x => compact(x.name).includes(want) || want.includes(compact(x.name))) || null; }
+    if (stamp && !/cosmosholo/.test(stamp)) return c.find(x => label(x).includes(stamp)) || null;      // a stamped promo must match its stamp
+    const plain = c.filter(x => !STAMP_MARK.test(x.name + ' ' + (x.set && x.set.name || '')) || (it.set && compact(x.set && x.set.name).includes(compact(short(it.set)))));
+    const pool = plain.length ? plain : c;
+    const setMatch = it.set ? pool.filter(x => compact(x.set && x.set.name) === compact(it.set)) : [];
+    const p2 = setMatch.length ? setMatch : pool;
+    return p2.find(x => /holo/i.test(x.variant || '') && !/reverse/i.test(x.variant || '')) || p2.find(x => /normal/i.test(x.variant || '')) || p2[0];
+  }
+  // One price per item, in the card's own currency: eBay sold (if it has sales), else TCGplayer, else Cardmarket.
+  function ptPriceFrom(card, it){
+    const P = card && card.prices; if (!P) return null;
+    let tier = 'NEAR_MINT';
+    if (kindOf(it) === 'graded'){ tier = (String(it.grader || '').toUpperCase().replace(/[^A-Z]/g, '') + '_' + String(it.grade || '').replace('.', '_')); if (!P[tier]) return null; }
+    else if (!P[tier]){ tier = Object.keys(P).find(t => !/^(PSA|BGS|CGC|SGC|ACE|TAG|AGGREGATED)/.test(t)) || ''; if (!tier) return null; }
+    const T = P[tier] || {}, us = T.US || {}, eu = T.EU || {};
+    const val = o => o && (o.median7d || o.avg || o.avg30d || o.avg7d);
+    if (us.ebay && val(us.ebay) && (us.ebay.saleCount == null || us.ebay.saleCount > 0)) return { amt: val(us.ebay), cur: 'USD', src: 'eBay sold', n: us.ebay.saleCount };
+    if (us.tcgplayer && val(us.tcgplayer)) return { amt: val(us.tcgplayer), cur: 'USD', src: 'TCGplayer' };
+    const cm = eu.cardmarket || eu.cardmarket_unsold || (P.AGGREGATED && P.AGGREGATED.EU && P.AGGREGATED.EU.cardmarket);
+    if (cm && val(cm)) return { amt: val(cm), cur: 'EUR', src: 'Cardmarket' };
+    return null;
+  }
+  function ptFor(it){
+    const m = PT.m[ptItemKey(it)]; if (!m || !m.id) return null;
+    const card = PT.p[m.id]; if (!card) return null;
+    const p = ptPriceFrom(card, it); if (!p) return null;
+    const amt = conv(p.amt, p.cur); if (amt == null) return null;
+    return { amount: amt, src: p.src + (p.n ? ' (' + p.n + ' sales)' : ''), date: card.d, orig: (p.cur === 'USD' ? 'US$' : '€') + p.amt.toFixed(2), live: true, pt: true };
+  }
+  let ptBusy = false;
+  async function refreshPT(force){
+    if (!window.__STANDALONE || ptBusy || !ptKey() || !navigator.onLine || !CAT) return { ok: false };
+    ptBusy = true; const today = utcDay(); let looked = 0, priced = 0, err = '';
+    try {
+      // 1) find the PokeTrace card for items not looked up yet (misses are retried after a week)
+      for (const it of S.items){
+        const key = ptItemKey(it), m = PT.m[key];
+        if (m && (m.id || (m.none && (Date.parse(today) - Date.parse(m.none)) < 7 * 864e5))) continue;
+        const k = kindOf(it), jp = it.lang === 'Japanese';
+        const q = new URLSearchParams({ limit: '20', game: jp ? 'pokemon-japanese' : 'pokemon' });
+        const tid = sealedTcgId(it);
+        if (tid) q.set('tcgplayer_ids', tid);
+        else {
+          q.set('search', k === 'sealed' ? (String(it.catId || '').split(':').slice(2).join(':') || it.name) : (jp && it.nameEn ? it.nameEn : it.name));
+          if (k === 'sealed') q.set('product_type', 'sealed');
+        }
+        const j = await ptGet('/cards?' + q); looked++;
+        const hit = tid ? (j.data || [])[0] : ptPick(j.data || [], it);
+        PT.m[key] = hit ? { id: hit.id, tcg: hit.refs && hit.refs.tcgplayerId || '' } : { none: today };
+        if (hit) PT.p[hit.id] = { prices: hit.prices, d: today };
+        savePT(); render();
+      }
+      // 2) daily refresh of everything already matched: batches of 20 by TCGplayer id, the rest one by one
+      if (force || PT.day !== today){
+        const ids = [...new Set(S.items.map(it => PT.m[ptItemKey(it)]).filter(m => m && m.id && !(PT.p[m.id] && PT.p[m.id].d === today)).map(m => m.id + '|' + (m.tcg || '')))];
+        const withTcg = ids.filter(x => x.split('|')[1]), without = ids.filter(x => !x.split('|')[1]);
+        for (let i = 0; i < withTcg.length; i += 20){
+          const chunk = withTcg.slice(i, i + 20), tids = chunk.map(x => x.split('|')[1]);
+          for (const game of ['pokemon', 'pokemon-japanese']){
+            const j = await ptGet('/cards?' + new URLSearchParams({ limit: '20', game, tcgplayer_ids: tids.join(',') })); looked++;
+            (j.data || []).forEach(c => { PT.p[c.id] = { prices: c.prices, d: today }; });
+            if (chunk.every(x => PT.p[x.split('|')[0]] && PT.p[x.split('|')[0]].d === today)) break;
+          }
+        }
+        for (const x of without){ const id = x.split('|')[0]; const j = await ptGet('/cards/' + encodeURIComponent(id)); looked++; if (j && j.data) PT.p[id] = { prices: j.data.prices, d: today }; }
+        PT.day = today;
+      }
+    } catch(e) { err = e.message; }
+    finally { ptBusy = false; savePT(); }
+    priced = S.items.filter(it => ptFor(it)).length;
+    render();
+    return { ok: !err, err, looked, priced };
+  }
   let SEALEDIDX = null;
   function sealedTcgId(it){
     if (kindOf(it) !== 'sealed') return '';
@@ -776,6 +889,7 @@
   const needsOwnValue = it => kindOf(it) === 'graded' || !!String(it.variant || '').trim();
   // Latest market price for one unit, in the vault's currency: TCGplayer for English, Cardmarket for Japanese (each falls back to the other).
   function marketFor(it){
+    const pt = ptFor(it); if (pt) return pt;
     if (!it.catId) return null;
     if (isCardId(it.catId)) return needsOwnValue(it) ? null : cardPrice(it);
     const tid = sealedTcgId(it);
@@ -806,8 +920,10 @@
   const pcUrl = it => 'https://www.pricecharting.com/search-products?type=prices&q=' + encodeURIComponent(priceQuery(it));
   const hasManualValue = it => it.value !== '' && it.value != null;
   function unitValue(it){
-    if (hasManualValue(it)) return num(it.value);
-    const m = marketFor(it); if (m) return m.amount;
+    const m = marketFor(it);
+    if (m && m.live) return m.amount;           // live market price comes first
+    if (hasManualValue(it)) return num(it.value); // then your own value
+    if (m) return m.amount;                     // then the built-in catalogue price
     return costOf(it) / qtyOf(it); // no market price: what was paid, converted to the vault currency
   }
   const shortDate = d => d ? new Date(d + 'T00:00').toLocaleDateString('en-AU', {day:'numeric', month:'short'}) : '';
@@ -1131,7 +1247,7 @@
       if (m) add('Market', fmt(m.amount * qtyOf(it)) + ' <span class="src">' + (m.live ? 'Live · ' : '') + m.src + ' ' + m.orig + (qtyOf(it) > 1 ? ' each' : '') + ' · ' + shortDate(m.date) + (S.currency !== (m.src === 'TCGplayer' ? 'USD' : 'EUR') ? ' · converted to ' + S.currency : '') + '</span>');
       const ref = needsOwnValue(it) ? cardPrice(it) : null;
       if (ref) add('Plain card', fmt(ref.amount) + ' <span class="src">' + ref.src + ' ' + ref.orig + ' · without ' + (k === 'graded' ? 'grading' : 'the stamp') + ' · for reference</span>');
-      if (hasManualValue(it)) add('Your value', fmt(valOf(it)) + (qtyOf(it) > 1 ? ' <span class="src">' + fmt(num(it.value)) + ' each</span>' : ''));
+      if (hasManualValue(it)) add('Your value', fmt(num(it.value) * qtyOf(it)) + ' <span class="src">' + [qtyOf(it) > 1 ? fmt(num(it.value)) + ' each' : '', m && m.live ? 'used only when there’s no live price' : ''].filter(Boolean).join(' · ') + '</span>');
       else if (!m) add('Value', fmt(valOf(it)) + ' <span class="src">same as paid — no live price for this one</span>' + (S.canWrite ? '<button type="button" class="pill gold" id="dSetVal" style="margin-top:var(--s2)">Set value</button>' : ''));
     }
     if (it.price !== '' && it.price != null) { const g = valOf(it) - costOf(it); add('Gain', '<span class="' + (g >= 0 ? 'pos' : 'neg') + '">' + fmt(g, true) + '</span>'); }
@@ -2129,7 +2245,25 @@
   }, true);
 
   /* ---------- data ---------- */
+  // Live prices key (Home Screen app only)
+  function ptStatus(r){
+    const used = ptBudget(), matched = S.items.filter(it => ptFor(it)).length;
+    if (r && r.err === 'key') return 'That key didn’t work. Copy it again from your PokeTrace dashboard.';
+    if (r && r.err === 'budget') return 'Used today’s free lookups (' + used + '). The rest are checked tomorrow.';
+    if (r && r.err) return 'Couldn’t reach PokeTrace right now (' + r.err + '). It will try again next time you open the app.';
+    return ptKey() ? 'Live prices for ' + matched + ' of ' + S.items.length + ' items · ' + used + ' of 100 free lookups used today.' : '';
+  }
+  $('#ptSave').addEventListener('click', async () => {
+    const k = $('#ptKey').value.trim();
+    try { if (k) localStorage.setItem('vault.ptkey', k); else localStorage.removeItem('vault.ptkey'); } catch(e) {}
+    $('#ptKey').value = ''; $('#ptKey').placeholder = k ? 'Key saved on this phone' : 'PokeTrace API key';
+    if (!k){ $('#ptMsg').textContent = 'Key removed.'; return; }
+    $('#ptMsg').textContent = 'Checking prices… one item every 2 seconds.';
+    const r = await refreshPT(true); $('#ptMsg').textContent = ptStatus(r);
+  });
+
   async function init(){
+    if (window.__STANDALONE){ $('#ptBox').hidden = false; if (ptKey()) $('#ptKey').placeholder = 'Key saved on this phone'; setTimeout(() => { $('#ptMsg').textContent = ptStatus(); }, 1500); }
     if (window.__STANDALONE){ $('#saveBackupFile').hidden = false; $('#restoreFileBtn').hidden = false; $('#backupHint').textContent = 'Saves your whole collection, photos included. Save the file to Files → iCloud Drive to keep it safe.'; }
     render();
     loadCat().then(render, () => {});
@@ -2149,7 +2283,7 @@
       S.items = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
       if (!snap.metadata.fromCache){ S.live = true; clearTimeout(timer); if (S.canWrite) banner(''); }
       render();
-      refreshLive();
+      refreshLive(); refreshPT();
     }, () => { clearTimeout(timer); banner('Couldn’t load your collection. Try reopening the page.'); });
     db.doc('history/days').onSnapshot(h => { HIST = h.exists ? (h.data() || {}) : {}; render(); }, () => {});
     db.doc('settings/main').onSnapshot(s => {
