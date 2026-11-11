@@ -31,7 +31,11 @@
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;background:var(--bg);color:var(--fg);font-family:"Manrope",system-ui,sans-serif;font-size:15px;line-height:20px}
   /* Keep the page still: no sideways drift, no rubber-band bounce, no double-tap zoom, and a frozen background while a sheet is open. */
-  html,body{overflow-x:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  /* Only the page itself scrolls. body uses clip (not hidden) so it never becomes a second, empty scroll box
+     that swallows mouse-wheel and trackpad scrolling on a laptop. */
+  html{overflow-x:hidden;overscroll-behavior:none}
+  body{overflow-x:clip}
+  html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   body{touch-action:manipulation}
   .wrap{overflow-x:clip}
   body.locked{position:fixed;left:0;right:0;width:100%;overflow:hidden}
