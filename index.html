@@ -272,6 +272,11 @@
   .hit-type{flex:none;width:36px;height:36px;border-radius:50%;background:color-mix(in srgb, var(--tc) 22%, var(--surface));box-shadow:inset 0 0 0 1.5px var(--tc);font-size:17px;display:grid;place-items:center}
   .hit-ill{font-style:italic}
   .hits .hit-sec{background:var(--tint);border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--muted)}
+  .scanbtn{display:flex;gap:var(--s3);align-items:center;width:100%;margin-top:var(--s3);padding:var(--s4);border:1px dashed var(--gold);border-radius:var(--rc);background:var(--surface);text-align:left;cursor:pointer;font:inherit;color:var(--ink)}
+  .scanbtn .sc-ic{font-size:24px;line-height:1;flex:none}
+  .scanbtn b{display:block;font-size:15px}
+  .scanbtn span span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+  .scannote{margin:var(--s2) 0 var(--s3);padding:var(--s3);border-radius:var(--s2);background:var(--tint);font-size:13px;line-height:18px;color:var(--ink)}
   .hit-typed{border-top:1px dashed var(--line2)!important}
   .hit-typed .hit-n span{color:var(--gold)}
   .hit-eye{flex:none;width:40px;height:40px;display:grid;place-items:center;border-radius:var(--rp);border:1px solid var(--line2);background:var(--surface);text-decoration:none;font-size:16px}
@@ -537,6 +542,7 @@
       <label class="linkbtn" for="f-photo">Or choose from Photos / Camera</label>
       <button type="button" class="linkbtn danger" id="removePhoto" hidden>Remove photo</button>
       <input id="f-photo" type="file" accept="image/*">
+      <input id="scanInput" type="file" accept="image/*" capture="environment" hidden>
     </div>
     <p class="photo-msg" id="photoMsg" role="status"></p>
   </div>
@@ -599,6 +605,13 @@
       <button type="button" class="linkbtn" id="syncOffBtn" style="margin-top:var(--s3)">Turn off sync on this device</button>
     </div>
     <p class="hint" id="syncMsg" style="margin-top:var(--s2)"></p>
+  </div>
+  <div id="aiBox" hidden>
+    <div class="section-t">Photo scan</div>
+    <p class="hint">Scan a slab or box with your camera and Claude identifies it. In this app it uses your own Claude API key from console.anthropic.com (about 1–2 cents per scan). The key stays on this device.</p>
+    <div class="f"><input id="aiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Claude API key (sk-ant-…)"></div>
+    <div class="stack"><button type="button" class="btn block" id="aiSave">Save key</button></div>
+    <p class="hint" id="aiMsg" style="margin-top:var(--s2)"></p>
   </div>
   <div id="ptBox" hidden>
     <div class="section-t">Live prices</div>
@@ -2135,6 +2148,8 @@
       T('What are you adding?');
       const cards = [['graded', 'Graded card', 'PSA, CGC, BGS and other slabs'], ['sealed', 'Sealed product', 'BBs, ETBs, UPCs, tins, 1- and 3-pack blisters']];
       add('<div class="kindcards">' + cards.map(([v, t, d]) => '<button type="button" class="kindcard' + (S.kind === v ? ' on' : '') + '" data-k="' + v + '" style="--stripe-c:' + STRIPE[v] + '"><div class="ic">' + placeholder(v).replace(/width="\d+" height="\d+"/, 'width="32" height="40"') + '</div><div><b>' + t + '</b><span>' + d + '</span></div></button>').join('') + '</div>');
+      add('<button type="button" class="scanbtn" id="scanKind"><span class="sc-ic">📷</span><span><b>Scan a photo</b><span>Take or choose a photo of the slab or box. Claude reads it and finds the match.</span></span></button>');
+      $('#scanKind').onclick = startScan;
       body.querySelectorAll('.kindcard').forEach(b => b.onclick = () => {
         if (S.kind !== b.dataset.k){ S.picked = null; setKind(b.dataset.k); renderPicked(); }
         flowGo(1);
@@ -2149,6 +2164,8 @@
         if (k !== 'sealed') borrow(fieldBox('number'));
         borrow(fieldBox('lang'));
       } else {
+        add('<button type="button" class="linkbtn" id="flowScan">📷 Scan a photo instead</button>');
+        $('#flowScan').onclick = startScan;
         add('<button type="button" class="linkbtn" id="flowManual">Can’t find it? Enter details yourself</button>');
         $('#flowManual').onclick = () => { FLOW.manual = true; renderFlow(0); setTimeout(() => F('name').focus(), 50); };
       }
@@ -2462,8 +2479,63 @@
     $('#syncOffBtn').addEventListener('click', () => { window.__vaultSync.off(); renderSync(); $('#syncMsg').textContent = 'Sync is off on this device. Your items stay here.'; });
   }
 
+  /* ---------- Photo scan: Claude looks at a photo of a slab or sealed product ----------
+     Claude page: uses the page's "ask Claude" capability (your Claude plan, no key).
+     Home Screen app: calls the Claude API with your own API key, kept only on this device. */
+  const SCAN_PROMPT = `You identify Pokémon TCG collectibles from one photo. It is either a graded card in a slab (PSA, CGC, BGS, TAG, ACE…) or a sealed product (booster box, ETB, bundle, blister, tin, collection box…).
+Read the slab label or the box printing carefully. Reply with ONLY a JSON object, no other text:
+{"kind":"graded" or "sealed","card_name":"English card name","set":"set or series name","number":"card number as printed, e.g. 057/XY-P or 215/203","language":"English|Japanese|Chinese (T)|Chinese (S)|Korean|Thai|Indonesian","year":"year on the label","grader":"PSA|CGC|BGS|TAG|ACE|Other","grade":"e.g. 10 or 9.5","cert":"certification number digits","stamp":"promo stamp or event if any, e.g. 7-Eleven, Staff, Prerelease, EB Games","product_name":"full English product name for sealed","product_type":"e.g. Elite Trainer Box, Booster Box, Booster Bundle, 3-Pack Blister","search":"3 to 6 short search words most likely to find it in a card or product list, e.g. klefki 057 xy-p japanese or delta reign elite trainer box","confidence":0.0}
+Use "" for anything you cannot read. Never invent cert digits.`;
+  const aiKey = () => { try { return localStorage.getItem('vault.aikey') || ''; } catch(e) { return ''; } };
+  const blobToB64 = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(b); });
+  function parseJSON(t){ const m = String(t || '').match(/\{[\s\S]*\}/); if (!m) throw new Error('no answer'); return JSON.parse(m[0]); }
+  async function aiIdentify(blob){
+    if (!window.__STANDALONE){
+      const sample = await window.claude.use('sample').catch(() => null);
+      if (!sample) throw new Error('Scanning isn’t available here.');
+      const lim = await sample.limits().catch(() => ({}));
+      if (!lim || !lim.images) throw new Error('Scanning photos isn’t available here.');
+      const r = await sample(SCAN_PROMPT, { images: [blob], modelTier: 'default', cache: false });
+      return parseJSON(r.text);
+    }
+    if (!aiKey()) throw new Error('NOKEY');
+    const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': aiKey(), 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 600, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: await blobToB64(blob) } }, { type: 'text', text: SCAN_PROMPT }] }] }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(res.status === 401 ? 'Your Claude API key didn’t work. Check it in Settings.' : (j.error && j.error.message) || ('HTTP ' + res.status));
+    return parseJSON((j.content || []).map(c => c.text || '').join(''));
+  }
+  function startScan(){ const i = $('#scanInput'); i.value = ''; i.click(); }
+  $('#scanInput').addEventListener('change', async e => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    if (window.__STANDALONE && !aiKey()){ toast('Add your Claude API key in Settings → Photo scan first'); return; }
+    const body = $('#flowBody');
+    body.innerHTML = '<div class="scannote">📷 Looking at your photo… this takes a few seconds.</div>';
+    let img;
+    try { img = await decodeToJpeg(f); } catch(err){ body.innerHTML = '<div class="scannote">This phone couldn’t read that photo. Try another.</div>'; return; }
+    S.pendingFile = img.blob; S.pendingPreview = img.dataUrl; S.pendingThumb = img.thumb;   // your photo becomes the item's picture
+    let r;
+    try { r = await aiIdentify(img.blob); }
+    catch(err){ FLOW.steps = flowStepsFor(S.kind); renderFlow(0); setErr(err.message === 'NOKEY' ? 'Add your Claude API key in Settings → Photo scan first.' : 'Couldn’t read the photo: ' + err.message); return; }
+    const kind = r.kind === 'sealed' ? 'sealed' : 'graded';
+    if (S.kind !== kind){ S.picked = null; setKind(kind); renderPicked(); }
+    if (kind === 'graded'){
+      const g = String(r.grader || '').toUpperCase(); const opt = [...F('grader').options].find(o => o.value.toUpperCase() === g); if (opt) F('grader').value = opt.value;
+      if (r.grade) F('grade').value = String(r.grade).replace(/[^0-9.]/g, '');
+      if (r.cert && /^\d{6,12}$/.test(String(r.cert).replace(/\D/g, ''))) F('cert').value = String(r.cert).replace(/\D/g, '');
+      if (r.stamp) F('variant').value = r.stamp;
+    }
+    if (r.language && [...F('lang').options].some(o => o.value === r.language)) F('lang').value = r.language;
+    FLOW.steps = flowStepsFor(S.kind); FLOW.i = Math.max(0, FLOW.steps.indexOf('item')); renderFlow(1);
+    const label = kind === 'graded' ? [r.year, r.card_name, r.number, r.stamp, r.grader && r.grade ? r.grader + ' ' + r.grade : ''].filter(Boolean).join(' · ') : (r.product_name || r.product_type || '');
+    $('#flowBody').insertAdjacentHTML('afterbegin', '<div class="scannote">📷 Claude read: <b>' + esc(label || 'not sure') + '</b>' + (r.cert ? '<br>Cert ' + esc(r.cert) + ' filled in.' : '') + '<br>Pick the right match below. Your photo is kept as the item’s picture.</div>');
+    $('#findQ').value = r.search || [r.card_name || r.product_name, r.number, r.language === 'English' ? '' : r.language].filter(Boolean).join(' ');
+    findSearch(); openHits();
+  });
+
   async function init(){
-    if (window.__STANDALONE){ $('#syncBox').hidden = !window.__vaultSync; renderSync(); }
+    if (window.__STANDALONE){ $('#syncBox').hidden = !window.__vaultSync; renderSync(); $('#aiBox').hidden = false; if (aiKey()) $('#aiKey').placeholder = 'Key saved on this device'; }
+    $('#aiSave').addEventListener('click', () => { const k = $('#aiKey').value.trim(); try { if (k) localStorage.setItem('vault.aikey', k); else localStorage.removeItem('vault.aikey'); } catch(e) {} $('#aiKey').value = ''; $('#aiKey').placeholder = k ? 'Key saved on this device' : 'Claude API key (sk-ant-…)'; $('#aiMsg').textContent = k ? 'Saved. Tap + then “Scan a photo”.' : 'Key removed.'; });
     if (window.__STANDALONE){ $('#ptBox').hidden = false; if (ptKey()) $('#ptKey').placeholder = 'Key saved on this phone'; setTimeout(() => { $('#ptMsg').textContent = ptStatus(); }, 1500); }
     if (window.__STANDALONE){ $('#saveBackupFile').hidden = false; $('#restoreFileBtn').hidden = false; $('#backupHint').textContent = 'Saves your whole collection, photos included. Save the file to Files → iCloud Drive to keep it safe.'; }
     render();
