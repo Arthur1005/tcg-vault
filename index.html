@@ -14,7 +14,7 @@
 
 <title>My TCG Vault</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Manrope:wght@400;500;600;700;800&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
   /* Spacing scale: every padding / margin / gap is a multiple of 4 (mostly 8). */
   :root{
@@ -116,7 +116,7 @@
   /* Safari doesn't stretch the contents of a button tile, so every row is set to the full tile width */
   .tile > *{align-self:stretch;width:100%;box-sizing:border-box}
   .tile > .t-qty{width:auto}
-  .t-name{font-family:"Cormorant Garamond",Georgia,serif;font-size:18px;line-height:20px;height:60px;font-weight:600;display:-webkit-box;-webkit-line-clamp:3;overflow-wrap:anywhere;-webkit-box-orient:vertical;overflow:hidden}
+  .t-name{font-family:"Fraunces",Georgia,serif;font-optical-sizing:auto;font-size:16px;line-height:20px;height:60px;font-weight:600;letter-spacing:-.005em;display:-webkit-box;-webkit-line-clamp:3;overflow-wrap:anywhere;-webkit-box-orient:vertical;overflow:hidden}
   .tile.has-qty .t-name{padding-right:var(--s6)}
   /* white mat behind every picture so its edges never touch the tile, row or text around it */
   .t-art{height:144px;display:grid;place-items:center;background:#fff;border:1px solid var(--line);border-radius:var(--rc);padding:var(--s3);box-sizing:border-box}
@@ -135,7 +135,7 @@
   .r-th{flex:0 0 56px;height:72px;display:grid;place-items:center;background:#fff;border:1px solid var(--line);border-radius:var(--s2);padding:var(--s1);box-sizing:border-box}
   .r-th img{max-width:40px;max-height:56px;border-radius:2px}
   .r-m{flex:1;min-width:0}
-  .r-m .n{font-family:"Cormorant Garamond",Georgia,serif;font-size:18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .r-m .n{font-family:"Fraunces",Georgia,serif;font-optical-sizing:auto;font-size:16px;line-height:20px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .r-m .s{display:flex;align-items:center;gap:var(--s2);font-size:12px;line-height:16px;color:var(--muted);margin-top:var(--s1);min-width:0}
   .r-m .s span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .r-v{text-align:right;flex:none;padding-left:var(--s2)}
@@ -164,7 +164,7 @@
   .d-art img{width:100%;box-sizing:border-box;background:#fff;padding:var(--s3);border-radius:var(--s3);border:1px solid var(--line)}
   .d-art .ph{width:152px;height:200px;background:var(--surface);border-radius:var(--rc);box-shadow:var(--shadow);display:grid;place-items:center}
   .d-card{width:min(384px,100%);background:var(--surface);border-radius:var(--rc);border:1px solid var(--line);box-shadow:0 12px 40px rgba(28,26,23,.10);padding:var(--s4)}
-  .d-title{font-family:"Cormorant Garamond",Georgia,serif;font-size:24px;line-height:28px;font-weight:600}
+  .d-title{font-family:"Fraunces",Georgia,serif;font-optical-sizing:auto;font-size:22px;line-height:28px;font-weight:600}
   .d-sub{font-size:11px;line-height:16px;font-weight:700;text-transform:uppercase;letter-spacing:.14em;color:var(--gold);margin-top:var(--s1)}
   .d-hr{height:1px;background:var(--line);margin:var(--s3) 0}
   .d-rows{display:grid;grid-template-columns:auto 1fr;gap:var(--s2) var(--s4);font-size:14px}
