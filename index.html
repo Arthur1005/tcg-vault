@@ -566,6 +566,22 @@
       <option value="AUD">AUD</option><option value="TWD">NTD (TWD)</option><option value="USD">USD</option><option value="JPY">JPY</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="CAD">CAD</option><option value="NZD">NZD</option><option value="SGD">SGD</option>
     </select>
   </div>
+  <div id="syncBox" hidden>
+    <div class="section-t">Sync between devices</div>
+    <div id="syncOff">
+      <p class="hint">Keeps your laptop and phone in step. No sign-in: a private sync code links your devices.</p>
+      <div class="stack"><button type="button" class="btn primary block" id="syncCreate">Turn on sync (first device)</button></div>
+      <div class="f" style="margin-top:var(--s4)"><label for="syncCode">Already turned on elsewhere? Paste that device’s sync code</label>
+        <input id="syncCode" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="tv-…"></div>
+      <div class="stack"><button type="button" class="btn block" id="syncJoin">Connect this device</button></div>
+    </div>
+    <div id="syncOn" hidden>
+      <p class="hint" id="syncStatus"></p>
+      <div class="stack"><button type="button" class="btn block" id="syncCopy">Copy sync code</button><button type="button" class="btn block" id="syncNowBtn">Sync now</button></div>
+      <button type="button" class="linkbtn" id="syncOffBtn" style="margin-top:var(--s3)">Turn off sync on this device</button>
+    </div>
+    <p class="hint" id="syncMsg" style="margin-top:var(--s2)"></p>
+  </div>
   <div id="ptBox" hidden>
     <div class="section-t">Live prices</div>
     <p class="hint">Prices come from PokeTrace: eBay sold first, then TCGplayer. Paste your PokeTrace API key. It stays on this phone and isn’t included in backups.</p>
@@ -608,8 +624,9 @@
   function notify(){ subs.forEach(function(f){ try { f(); } catch(e){} }); }
   function clone(o){ return JSON.parse(JSON.stringify(o)); }
   function snapDoc(path){ var d = cache.get(path); return { id: path.split('/').pop(), exists: d !== undefined, data: function(){ return d; }, metadata: { fromCache: false, hasPendingWrites: false } }; }
-  function write(path, val){
+  function write(path, val, fromSync){
     if (val === undefined) cache.delete(path); else cache.set(path, val);
+    if (!fromSync && window.__vaultSync) window.__vaultSync._changed(path);
     notify();
     return tx(STORE, 'readwrite', function(s){ if (val === undefined) s.delete(path); else s.put(val, path); });
   }
@@ -632,6 +649,83 @@
       onSnapshot: function(n){ var f = function(){ n(snap()); }; subs.add(f); ready.then(f); return function(){ subs.delete(f); }; } };
   }
   var db = { doc: docRef, collection: colRef };
+
+  /* ---------- Sync between devices (Supabase) ----------
+     No sign-in: a long random sync code is the key to this vault. It's kept only on each device and sent as a header;
+     the database only returns or changes rows whose vault matches that code. Edits carry a time, and the newest wins. */
+  var SB_URL = 'https://pnszphddwqptjzcnkeup.supabase.co', SB_KEY = 'sb_publishable_055fLqaMerpzasqc9Rx9pg_JGqVjLkb';
+  var LS = { code: 'vault.sync', meta: 'vault.sync.meta', last: 'vault.sync.last' };
+  function lsGet(k, d){ try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch(e){ return d; } }
+  function lsSet(k, v){ try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+  var meta = lsGet(LS.meta, {});            // path -> time of the last local edit (ms)
+  var dirty = new Set(Object.keys(lsGet('vault.sync.dirty', {})));
+  var st = { state: 'off', at: 0, err: '' }, listeners = new Set(), pushT = null, busy = false, pollT = null;
+  function setState(s, err){ st.state = s; st.err = err || ''; if (s === 'ok') st.at = Date.now(); listeners.forEach(function(f){ try { f(st); } catch(e){} }); }
+  function code(){ return lsGet(LS.code, ''); }
+  function saveDirty(){ var o = {}; dirty.forEach(function(p){ o[p] = 1; }); lsSet('vault.sync.dirty', o); lsSet(LS.meta, meta); }
+  function hdr(extra){ var h = { apikey: SB_KEY, 'x-vault': code(), 'Content-Type': 'application/json' }; for (var k in extra) h[k] = extra[k]; return h; }
+  function api(path, opt){
+    return fetch(SB_URL + '/rest/v1/' + path, opt).then(function(r){
+      if (!r.ok) return r.text().then(function(t){ var e = new Error('HTTP ' + r.status + ' ' + t.slice(0, 160)); e.status = r.status; throw e; });
+      return r.status === 204 ? null : r.text().then(function(t){ return t ? JSON.parse(t) : null; });
+    });
+  }
+  function push(){
+    if (!code() || !dirty.size) return Promise.resolve();
+    var paths = Array.from(dirty).slice(0, 40);
+    var rows = paths.map(function(p){ var v = cache.get(p); return { vault: code(), path: p, data: v === undefined ? null : v, deleted: v === undefined, updated_at: new Date(meta[p] || Date.now()).toISOString() }; });
+    return api('vault_rows?on_conflict=vault,path', { method: 'POST', headers: hdr({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(rows) })
+      .then(function(){ paths.forEach(function(p){ dirty.delete(p); }); saveDirty(); if (dirty.size) return push(); });
+  }
+  function pull(){
+    if (!code()) return Promise.resolve();
+    var since = lsGet(LS.last, '');
+    var q = 'vault_rows?select=path,data,deleted,updated_at,synced_at&vault=eq.' + encodeURIComponent(code()) + (since ? '&synced_at=gt.' + encodeURIComponent(since) : '') + '&order=synced_at.asc&limit=200';
+    return api(q, { headers: hdr() }).then(function(rows){
+      var changed = false;
+      (rows || []).forEach(function(r){
+        var t = Date.parse(r.updated_at) || 0;
+        if (!(r.path in meta) || t > meta[r.path] || (t === meta[r.path] && !dirty.has(r.path))){   // remote is newer (or we've never seen it)
+          meta[r.path] = t; dirty.delete(r.path);
+          var v = r.deleted ? undefined : r.data;
+          if (JSON.stringify(cache.get(r.path)) !== JSON.stringify(v)){ write(r.path, v, true); changed = true; }
+        }
+        since = r.synced_at;
+      });
+      lsSet(LS.last, since); lsSet(LS.meta, meta);
+      if (rows && rows.length === 200) return pull();
+    });
+  }
+  function syncNow(){
+    if (!code() || busy) return Promise.resolve();
+    if (!navigator.onLine){ setState('offline'); return Promise.resolve(); }
+    busy = true; setState('syncing');
+    return ready.then(push).then(pull).then(push).then(function(){ busy = false; setState('ok'); }, function(e){ busy = false; setState('error', e && e.message || String(e)); });
+  }
+  function schedule(){ clearTimeout(pushT); pushT = setTimeout(syncNow, 800); }
+  function startPolling(){
+    clearInterval(pollT); if (!code()) return;
+    pollT = setInterval(function(){ if (document.visibilityState === 'visible') syncNow(); }, 15000);
+  }
+  function markAllLocal(ts){ return ready.then(function(){ cache.forEach(function(v, p){ if (!(p in meta)) meta[p] = ts; dirty.add(p); }); saveDirty(); }); }  // join uses an older time, so the first device wins any clash
+  function newCode(){ var a = new Uint8Array(24); crypto.getRandomValues(a); return 'tv-' + Array.from(a, function(b){ return ('0' + b.toString(16)).slice(-2); }).join(''); }
+  window.__vaultSync = {
+    enabled: function(){ return !!code(); },
+    code: code,
+    status: function(){ return st; },
+    onStatus: function(f){ listeners.add(f); return function(){ listeners.delete(f); }; },
+    syncNow: syncNow,
+    // First device: make a code and upload everything on this device.
+    create: function(){ lsSet(LS.code, newCode()); lsSet(LS.last, ''); return markAllLocal(2).then(syncNow).then(startPolling).then(function(){ return st; }); },
+    // Another device: join with the code. Items on both devices are kept (the newest edit of each wins).
+    join: function(c){ c = String(c || '').trim(); if (!/^tv-[0-9a-f]{48}$/.test(c)) return Promise.reject(new Error('That doesn’t look like a sync code.'));
+      lsSet(LS.code, c); lsSet(LS.last, ''); return markAllLocal(1).then(pull).then(syncNow).then(startPolling).then(function(){ return st; }); },
+    off: function(){ clearInterval(pollT); lsSet(LS.code, null); lsSet(LS.last, null); setState('off'); },
+    _changed: function(p){ if (!code()) return; meta[p] = Date.now(); dirty.add(p); saveDirty(); schedule(); }
+  };
+  if (code()){ setState('syncing'); ready.then(syncNow); startPolling(); }
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible' && code()) syncNow(); });
+  window.addEventListener('online', function(){ if (code()) syncNow(); });
   var assets = {
     upload: function(blob){ var id = rid(); return tx(BLOBS, 'readwrite', function(s){ s.put(blob, id); }).then(function(){ return { id: id, url: '', sizeBytes: blob.size, contentType: blob.type }; }); },
     list: function(){ return Promise.resolve({ assets: [], usage: {} }); },
@@ -2285,7 +2379,37 @@
     const r = await refreshPT(true); $('#ptMsg').textContent = ptStatus(r);
   });
 
+  // Sync between devices (Home Screen app only; the Claude page already syncs through Claude)
+  function renderSync(){
+    const V = window.__vaultSync; if (!V) return;
+    const on = V.enabled(); $('#syncOff').hidden = on; $('#syncOn').hidden = !on;
+    if (!on) return;
+    const s = V.status(), t = s.at ? new Date(s.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+    $('#syncStatus').textContent = s.state === 'syncing' ? 'Syncing…' : s.state === 'offline' ? 'Offline. Changes sync when you’re back online.'
+      : s.state === 'error' ? 'Couldn’t sync: ' + s.err : 'Sync is on' + (t ? ' · last synced ' + t : '') + '. Changes show on your other devices within about 15 seconds.';
+  }
+  if (window.__vaultSync){
+    window.__vaultSync.onStatus(renderSync);
+    $('#syncCreate').addEventListener('click', async () => {
+      $('#syncMsg').textContent = 'Uploading your collection…';
+      await window.__vaultSync.create(); renderSync();
+      const s = window.__vaultSync.status();
+      $('#syncMsg').textContent = s.state === 'error' ? '' : 'Done. Tap “Copy sync code”, then paste it on your other device. Keep the code private.';
+    });
+    $('#syncJoin').addEventListener('click', async () => {
+      try { $('#syncMsg').textContent = 'Connecting…'; await window.__vaultSync.join($('#syncCode').value); $('#syncCode').value = ''; renderSync(); $('#syncMsg').textContent = window.__vaultSync.status().state === 'error' ? '' : 'Connected. Your items from both devices are now together.'; }
+      catch(e){ $('#syncMsg').textContent = e.message; }
+    });
+    $('#syncCopy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(window.__vaultSync.code()); toast('Sync code copied'); }
+      catch(e){ $('#syncMsg').textContent = window.__vaultSync.code(); }
+    });
+    $('#syncNowBtn').addEventListener('click', () => window.__vaultSync.syncNow());
+    $('#syncOffBtn').addEventListener('click', () => { window.__vaultSync.off(); renderSync(); $('#syncMsg').textContent = 'Sync is off on this device. Your items stay here.'; });
+  }
+
   async function init(){
+    if (window.__STANDALONE){ $('#syncBox').hidden = !window.__vaultSync; renderSync(); }
     if (window.__STANDALONE){ $('#ptBox').hidden = false; if (ptKey()) $('#ptKey').placeholder = 'Key saved on this phone'; setTimeout(() => { $('#ptMsg').textContent = ptStatus(); }, 1500); }
     if (window.__STANDALONE){ $('#saveBackupFile').hidden = false; $('#restoreFileBtn').hidden = false; $('#backupHint').textContent = 'Saves your whole collection, photos included. Save the file to Files → iCloud Drive to keep it safe.'; }
     render();
