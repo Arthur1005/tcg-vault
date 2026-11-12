@@ -1,6 +1,6 @@
 {
-  "name": "My TCG Vault",
-  "short_name": "Vault",
+  "name": "Arthur’s Archive",
+  "short_name": "Archive",
   "description": "Personal Pokémon TCG collection: promos, slabs and sealed.",
   "start_url": "./",
   "scope": "./",

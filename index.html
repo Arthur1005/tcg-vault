@@ -8,11 +8,11 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Vault">
+<meta name="apple-mobile-web-app-title" content="Arthur’s Archive">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#f7f4ee">
 
-<title>My TCG Vault</title>
+<title>Arthur’s Archive</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Manrope:wght@400;500;600;700;800&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
 <style>
@@ -51,6 +51,7 @@
   .wordmark b{font-family:"Cormorant Garamond",Georgia,serif;font-size:28px;font-weight:600;letter-spacing:.24em;color:var(--ink);line-height:28px}
   .wm-row{display:inline-flex;align-items:center;gap:var(--s3)}
   .wm-mark{flex:none;display:block}
+  .wordmark b.wm-name{font-family:"Cormorant Garamond",Georgia,serif;font-size:26px;line-height:32px;font-weight:600;letter-spacing:.01em;color:var(--ink)}
   .wordmark i{display:block;height:1px;width:100%;border-radius:0;background:linear-gradient(90deg,var(--gold),var(--gold2),var(--gold))}
   .iconbtn{width:40px;height:40px;margin-right:calc(-1 * var(--s2));border:0;background:none;display:grid;place-items:center;cursor:pointer;border-radius:var(--s2);padding:0}
   .iconbtn:active{background:var(--tint)}
@@ -362,7 +363,7 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="wordmark" role="img" aria-label="TCG Vault"><span class="wm-row"><svg class="wm-mark" width="36" height="36" viewBox="0 0 64 64" aria-hidden="true"> <defs> <linearGradient id="vmG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d9bf8c"/><stop offset="1" stop-color="#a8844f"/></linearGradient> <clipPath id="vmC"><circle cx="32" cy="32" r="26"/></clipPath> </defs> <circle cx="32" cy="32" r="30" fill="#1c1a17"/> <g clip-path="url(#vmC)"> <rect x="0" y="0" width="64" height="32" fill="url(#vmG)"/> <rect x="0" y="32" width="64" height="32" fill="#fffefb"/> <rect x="0" y="29" width="64" height="6" fill="#1c1a17"/> </g> <circle cx="32" cy="32" r="11" fill="#1c1a17"/> <circle cx="32" cy="32" r="7.5" fill="#fffefb"/> <g stroke="#a8844f" stroke-width="1.4" stroke-linecap="round"> <path d="M32 25.8v1.8M32 36.4v1.8M25.8 32h1.8M36.4 32h1.8M27.6 27.6l1.2 1.2M35.2 35.2l1.2 1.2M27.6 36.4l1.2-1.2M35.2 28.8l1.2-1.2"/> </g> <circle cx="32" cy="32" r="2.2" fill="#1c1a17"/> </svg></span></div>
+    <div class="wordmark"><span class="wm-row"><svg class="wm-mark" width="36" height="36" viewBox="0 0 64 64" aria-hidden="true"> <defs> <linearGradient id="vmG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d9bf8c"/><stop offset="1" stop-color="#a8844f"/></linearGradient> <clipPath id="vmC"><circle cx="32" cy="32" r="26"/></clipPath> </defs> <circle cx="32" cy="32" r="30" fill="#1c1a17"/> <g clip-path="url(#vmC)"> <rect x="0" y="0" width="64" height="32" fill="url(#vmG)"/> <rect x="0" y="32" width="64" height="32" fill="#fffefb"/> <rect x="0" y="29" width="64" height="6" fill="#1c1a17"/> </g> <circle cx="32" cy="32" r="11" fill="#1c1a17"/> <circle cx="32" cy="32" r="7.5" fill="#fffefb"/> <g stroke="#a8844f" stroke-width="1.4" stroke-linecap="round"> <path d="M32 25.8v1.8M32 36.4v1.8M25.8 32h1.8M36.4 32h1.8M27.6 27.6l1.2 1.2M35.2 35.2l1.2 1.2M27.6 36.4l1.2-1.2M35.2 28.8l1.2-1.2"/> </g> <circle cx="32" cy="32" r="2.2" fill="#1c1a17"/> </svg><b class="wm-name">Arthur’s Archive</b></span></div>
     <button class="iconbtn" id="searchToggle" aria-label="Search">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1c1a17" stroke-width="3" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5l5 5"/></svg>
     </button>
