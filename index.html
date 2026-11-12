@@ -155,7 +155,9 @@
   .fab:active{transform:scale(.96)}
 
   /* detail overlay */
-  .detail{position:fixed;inset:0;z-index:12;background:rgba(247,244,238,.72);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:var(--s4);padding:calc(var(--sat) + var(--s5)) var(--s5) calc(var(--sab) + var(--s5));overflow-y:auto}
+  .detail{position:fixed;inset:0;z-index:12;background:rgba(247,244,238,.72);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);display:none;flex-direction:column;align-items:center;justify-content:flex-start;gap:var(--s4);padding:calc(var(--sat) + var(--s7)) var(--s5) calc(var(--sab) + var(--s7));overflow-y:auto}
+  /* centred when it fits, but a tall item scrolls from its top instead of being cut off above the screen */
+  .detail > :first-child{margin-top:auto} .detail > :last-child{margin-bottom:auto}
   .detail.open{display:flex;animation:fade .18s ease-out}
   @keyframes fade{from{opacity:0}to{opacity:1}}
   .d-art{width:min(232px,62vw);display:flex;flex-direction:column;align-items:center}
