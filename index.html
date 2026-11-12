@@ -276,6 +276,7 @@
   .scanbtn .sc-ic{font-size:24px;line-height:1;flex:none}
   .scanbtn b{display:block;font-size:15px}
   .scanbtn span span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+  .scannote.bad{background:#f6e7e3;color:#7a2e22}
   .scannote{margin:var(--s2) 0 var(--s3);padding:var(--s3);border-radius:var(--s2);background:var(--tint);font-size:13px;line-height:18px;color:var(--ink)}
   .hit-typed{border-top:1px dashed var(--line2)!important}
   .hit-typed .hit-n span{color:var(--gold)}
@@ -610,7 +611,7 @@
     <div class="section-t">Photo scan</div>
     <p class="hint">Scan a slab or box with your camera and Claude identifies it. In this app it uses your own Claude API key from console.anthropic.com (about 1–2 cents per scan). The key stays on this device.</p>
     <div class="f"><input id="aiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Claude API key (sk-ant-…)"></div>
-    <div class="stack"><button type="button" class="btn block" id="aiSave">Save key</button></div>
+    <div class="stack"><button type="button" class="btn block" id="aiSave">Save key</button><button type="button" class="btn block" id="aiTest">Test key</button></div>
     <p class="hint" id="aiMsg" style="margin-top:var(--s2)"></p>
   </div>
   <div id="ptBox" hidden>
@@ -2502,21 +2503,35 @@ Use "" for anything you cannot read. Never invent cert digits.`;
     const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': aiKey(), 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'content-type': 'application/json' },
       body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 600, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: await blobToB64(blob) } }, { type: 'text', text: SCAN_PROMPT }] }] }) });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(res.status === 401 ? 'Your Claude API key didn’t work. Check it in Settings.' : (j.error && j.error.message) || ('HTTP ' + res.status));
+    if (!res.ok) throw new Error(aiErrorText(res.status, j));
     return parseJSON((j.content || []).map(c => c.text || '').join(''));
+  }
+  function aiErrorText(status, j){
+    const m = (j && j.error && j.error.message) || '';
+    if (status === 401) return 'Your Claude API key wasn’t accepted. Copy it again from console.anthropic.com → API keys and paste it in Settings → Photo scan.';
+    if (/credit balance|billing|purchase credits/i.test(m)) return 'Your Claude API account has no credit yet. Add some at console.anthropic.com → Billing (a few dollars covers hundreds of scans), then try again.';
+    if (status === 403) return 'This API key isn’t allowed to do this. Check its permissions at console.anthropic.com.';
+    if (status === 404 || /model/i.test(m)) return 'The scanning model isn’t available on this key: ' + m;
+    if (status === 429) return 'Too many scans at once. Wait a minute and try again.';
+    if (status >= 500) return 'Claude is busy right now. Try again in a moment.';
+    return m || ('Error ' + status);
+  }
+  function scanFail(msg){
+    FLOW.steps = flowStepsFor(S.kind); renderFlow(0);
+    $('#flowBody').insertAdjacentHTML('afterbegin', '<div class="scannote bad">📷 ' + esc(msg) + '</div>');
   }
   function startScan(){ const i = $('#scanInput'); i.value = ''; i.click(); }
   $('#scanInput').addEventListener('change', async e => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
-    if (window.__STANDALONE && !aiKey()){ toast('Add your Claude API key in Settings → Photo scan first'); return; }
+    if (window.__STANDALONE && !aiKey()){ scanFail('Add your Claude API key in Settings → Photo scan first.'); return; }
     const body = $('#flowBody');
     body.innerHTML = '<div class="scannote">📷 Looking at your photo… this takes a few seconds.</div>';
     let img;
-    try { img = await decodeToJpeg(f); } catch(err){ body.innerHTML = '<div class="scannote">This phone couldn’t read that photo. Try another.</div>'; return; }
+    try { img = await decodeToJpeg(f); } catch(err){ scanFail('This phone couldn’t read that photo. Try another.'); return; }
     S.pendingFile = img.blob; S.pendingPreview = img.dataUrl; S.pendingThumb = img.thumb;   // your photo becomes the item's picture
     let r;
     try { r = await aiIdentify(img.blob); }
-    catch(err){ FLOW.steps = flowStepsFor(S.kind); renderFlow(0); setErr(err.message === 'NOKEY' ? 'Add your Claude API key in Settings → Photo scan first.' : 'Couldn’t read the photo: ' + err.message); return; }
+    catch(err){ scanFail(err.message === 'NOKEY' ? 'Add your Claude API key in Settings → Photo scan first.' : /Failed to fetch|NetworkError|Load failed/i.test(err.message) ? 'Couldn’t reach Claude. Check your internet connection and try again.' : 'Couldn’t read the photo. ' + err.message); return; }
     const kind = r.kind === 'sealed' ? 'sealed' : 'graded';
     if (S.kind !== kind){ S.picked = null; setKind(kind); renderPicked(); }
     if (kind === 'graded'){
@@ -2535,6 +2550,16 @@ Use "" for anything you cannot read. Never invent cert digits.`;
 
   async function init(){
     if (window.__STANDALONE){ $('#syncBox').hidden = !window.__vaultSync; renderSync(); $('#aiBox').hidden = false; if (aiKey()) $('#aiKey').placeholder = 'Key saved on this device'; }
+    $('#aiTest').addEventListener('click', async () => {
+      if (!aiKey()){ $('#aiMsg').textContent = 'Save a key first.'; return; }
+      $('#aiMsg').textContent = 'Testing…';
+      try {
+        const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': aiKey(), 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'content-type': 'application/json' },
+          body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 5, messages: [{ role: 'user', content: 'Reply OK' }] }) });
+        const j = await res.json().catch(() => ({}));
+        $('#aiMsg').textContent = res.ok ? 'The key works. Scanning is ready.' : aiErrorText(res.status, j);
+      } catch(e){ $('#aiMsg').textContent = 'Couldn’t reach Claude: ' + e.message; }
+    });
     $('#aiSave').addEventListener('click', () => { const k = $('#aiKey').value.trim(); try { if (k) localStorage.setItem('vault.aikey', k); else localStorage.removeItem('vault.aikey'); } catch(e) {} $('#aiKey').value = ''; $('#aiKey').placeholder = k ? 'Key saved on this device' : 'Claude API key (sk-ant-…)'; $('#aiMsg').textContent = k ? 'Saved. Tap + then “Scan a photo”.' : 'Key removed.'; });
     if (window.__STANDALONE){ $('#ptBox').hidden = false; if (ptKey()) $('#ptKey').placeholder = 'Key saved on this phone'; setTimeout(() => { $('#ptMsg').textContent = ptStatus(); }, 1500); }
     if (window.__STANDALONE){ $('#saveBackupFile').hidden = false; $('#restoreFileBtn').hidden = false; $('#backupHint').textContent = 'Saves your whole collection, photos included. Save the file to Files → iCloud Drive to keep it safe.'; }
