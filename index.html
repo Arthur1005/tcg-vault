@@ -1142,6 +1142,20 @@
   function shortRarity(r, jp){ if (!r) return ''; return (jp && JP_RARITY[String(r).toLowerCase()]) || short(r); }
   const shortLang = l => l === 'Japanese' ? 'JP' : l === 'English' ? 'EN' : (l || '');
 
+  // Sealed tiles: the title is the set or theme ("Delta Reign", "30th Celebration"), the line under it is the product ("ETB", "Poster Collection").
+  const PRODUCT_WORDS = /\b(PC ETB\+?|ETB\+?|BB|Booster (Box|Bundle|Pack|Display|Case)|Bundle|Sleeved (Art Set|Pack)|Art Set|Sleeved|Single Pack|[123]-Pack Blister|Checklane Blister|Blister|Premium|Super[- ]Premium|Ultra[- ]Premium|Special|Poster|Collection|Box|Tin|Mini Tin|Pin|Binder|Deck|Battle|Build & Battle|B&B|UPC|SPC|Case|Display|Pack|Gift|Trainer'?s Toolkit|Toolkit|Figure|Stadium|Chest|Lunch Box|Kit)\b/i;
+  function sealedTitle(it){
+    const n = short(it.name || '').trim(), set = short(it.set || '').trim(), art = it.variant ? ' · ' + it.variant : '';
+    const type = short(it.ptype) || 'Sealed';
+    if (!n) return [set || 'Untitled', type + art];
+    let m = n.match(/^(.+?):\s*(.+)$/);
+    if (m) return [m[1], tidy(m[2]) + art];
+    if (set && set.length < n.length && n.toLowerCase().startsWith(set.toLowerCase() + ' ')) return [set, tidy(n.slice(set.length)) + art];
+    const i = n.search(PRODUCT_WORDS);
+    if (i > 0) return [n.slice(0, i).trim().replace(/[\s,–-]+$/, ''), tidy(n.slice(i)) + art];
+    return [n, type + art];
+    function tidy(p){ p = p.trim().replace(/\s*\[([^\]]+)\]$/, ' · $1'); return /^(collection|box|pack|set)$/i.test(p) ? type : p; }
+  }
   function smallLabel(it){
     const k = kindOf(it);
     if (k === 'graded') return (it.grader || 'Graded') + (it.grade ? ' ' + it.grade : '');
@@ -1313,10 +1327,11 @@
     if (S.view === 'grid'){
       box.innerHTML = partialNote + '<div class="grid">' + rows.map(it => {
         const g = valOf(it) - costOf(it), q = qtyOf(it);
-        const meta = [smallLabel(it), short(it.set) || it.number, it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ');
+        const sl = kindOf(it) === 'sealed' ? sealedTitle(it) : null;
+        const meta = sl ? [sl[1], it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ') : [smallLabel(it), short(it.set) || it.number, it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ');
         return '<button class="tile' + (q > 1 ? ' has-qty' : '') + '" data-id="' + esc(it.id) + '" style="--stripe-c:' + STRIPE[kindOf(it)] + '">' +
           (q > 1 ? '<span class="t-qty">×' + q + '</span>' : '') +
-          '<div class="t-name">' + esc(short(it.name) || 'Untitled') + '</div>' +
+          '<div class="t-name">' + esc(sl ? sl[0] : (short(it.name) || 'Untitled')) + '</div>' +
           '<div class="t-art">' + artHTML(it) + '</div>' +
           '<div class="t-meta"><i class="kdot"></i><span>' + esc(meta) + '</span></div>' +
           '<div class="t-price"><b>' + fmt(valOf(it)) + '</b>' + (costOf(it) > 0 && Math.abs(g) >= 0.5 ? '<span class="' + (g >= 0 ? 'pos' : 'neg') + '">' + fmt(g, true) + '</span>' : '') + '</div>' +
@@ -1325,10 +1340,11 @@
     } else {
       box.innerHTML = partialNote + '<div class="list">' + rows.map(it => {
         const g = valOf(it) - costOf(it);
-        const sub = [smallLabel(it), short(it.set), kindOf(it) === 'graded' && it.cert ? '#' + it.cert : (it.number || ''), it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ');
+        const sl = kindOf(it) === 'sealed' ? sealedTitle(it) : null;
+        const sub = sl ? [sl[1], it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ') : [smallLabel(it), short(it.set), kindOf(it) === 'graded' && it.cert ? '#' + it.cert : (it.number || ''), it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ');
         return '<button class="row" data-id="' + esc(it.id) + '" style="--stripe-c:' + STRIPE[kindOf(it)] + '">' +
           '<div class="r-th">' + artHTML(it).replace(/width="(\d+)" height="(\d+)"/, (m, w, h) => 'width="' + Math.round(w*.6) + '" height="' + Math.round(h*.6) + '"') + '</div>' +
-          '<div class="r-m"><div class="n">' + esc(short(it.name) || 'Untitled') + (qtyOf(it) > 1 ? ' <span style="color:var(--muted);font-weight:600">×' + qtyOf(it) + '</span>' : '') + '</div><div class="s"><i class="kdot"></i><span>' + esc(sub) + '</span></div></div>' +
+          '<div class="r-m"><div class="n">' + esc(sl ? sl[0] : (short(it.name) || 'Untitled')) + (qtyOf(it) > 1 ? ' <span style="color:var(--muted);font-weight:600">×' + qtyOf(it) + '</span>' : '') + '</div><div class="s"><i class="kdot"></i><span>' + esc(sub) + '</span></div></div>' +
           '<div class="r-v"><b>' + fmt(valOf(it)) + '</b>' + (costOf(it) > 0 && Math.abs(g) >= 0.5 ? '<span class="' + (g >= 0 ? 'pos' : 'neg') + '">' + fmt(g, true) + '</span>' : '') + '</div>' +
         '</button>';
       }).join('') + '</div>';
