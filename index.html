@@ -113,7 +113,10 @@
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
   .tile{position:relative;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:var(--rc);box-shadow:var(--shadow);padding:var(--s4);cursor:pointer;display:flex;flex-direction:column;gap:var(--s3);overflow:hidden;min-width:0}
   .tile:active{background:var(--tint)}
-  .t-name{font-family:"Cormorant Garamond",Georgia,serif;font-size:19px;line-height:20px;height:40px;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  /* Safari doesn't stretch the contents of a button tile, so every row is set to the full tile width */
+  .tile > *{align-self:stretch;width:100%;box-sizing:border-box}
+  .tile > .t-qty{width:auto}
+  .t-name{font-family:"Cormorant Garamond",Georgia,serif;font-size:18px;line-height:20px;height:60px;font-weight:600;display:-webkit-box;-webkit-line-clamp:3;overflow-wrap:anywhere;-webkit-box-orient:vertical;overflow:hidden}
   .tile.has-qty .t-name{padding-right:var(--s6)}
   /* white mat behind every picture so its edges never touch the tile, row or text around it */
   .t-art{height:144px;display:grid;place-items:center;background:#fff;border:1px solid var(--line);border-radius:var(--rc);padding:var(--s3);box-sizing:border-box}
@@ -1120,6 +1123,7 @@
 
   // Collector short terms, used everywhere a name, type or rarity is shown. Stored data keeps the full official names.
   const SHORT = [
+    [/Sleeved Booster Pack Art Bundle \[Set of (\d)\]/gi, 'Sleeved Art Set ($1)'], [/Booster Pack Art Bundle \[Set of (\d)\]/gi, 'Art Set ($1)'], [/Sleeved Booster Pack/gi, 'Sleeved Pack'],
     [/\b(3|three)[- ]?pack( booster)? blister/gi, '3-Pack Blister'], [/\b(2|two)[- ]?pack( booster)? blister/gi, '2-Pack Blister'],
     [/\b(1|one|single)[- ]?(pack |booster )?blister/gi, '1-Pack Blister'],
     [/Pok[eé]mon Center Elite Trainer Box Plus/gi, 'PC ETB+'], [/Elite Trainer Box Plus/gi, 'ETB+'], [/Pok[eé]mon Center Elite Trainer Box(es)?/gi, 'PC ETB'], [/Elite Trainer Box(es)?/gi, 'ETB'],
