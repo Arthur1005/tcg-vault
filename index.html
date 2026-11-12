@@ -430,7 +430,6 @@
   <h2><span id="sheetTitle">Add item</span><button type="button" class="x" data-close>✕</button></h2>
 
   <div class="seg" id="kindSeg">
-    <button type="button" data-k="promo" style="--stripe-c:var(--c-promo)">Promo</button>
     <button type="button" data-k="graded" style="--stripe-c:var(--c-graded)">Graded</button>
     <button type="button" data-k="sealed" style="--stripe-c:var(--c-sealed)">Sealed</button>
   </div>
@@ -653,12 +652,13 @@
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const num = v => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
 
-  const KINDS = { promo:'Promo', graded:'Graded', sealed:'Sealed' };
+  // The vault tracks slabs and sealed product. Older ungraded promo entries stay saved (and in backups) but are hidden.
+  const KINDS = { graded:'Graded', sealed:'Sealed' };
   const STRIPE = { promo:'var(--c-promo)', graded:'var(--c-graded)', sealed:'var(--c-sealed)' };
   const S = {
     items: [], tab: 'all', q: '', sort: 'new', view: 'grid', currency: 'AUD',
     db: null, col: null, assets: null, canWrite: true, live: false,
-    editingId: null, detailId: null, kind: 'promo', pendingFile: null, photoId: null, saving: false
+    allItems: [], editingId: null, detailId: null, kind: 'graded', pendingFile: null, photoId: null, saving: false
   };
   const kindOf = it => (it.kind === 'graded' || it.kind === 'sealed') ? it.kind : 'promo';
 
@@ -1620,7 +1620,7 @@
     FIELDS.forEach(f => { const el = F(f); if (el.tagName === 'SELECT') el.selectedIndex = 0; else el.value = ''; });
     F('qty').value = 1; F('pcur').value = S.currency;
     if (it) FIELDS.forEach(f => { if (it[f] != null && it[f] !== '') F(f).value = it[f]; });
-    setKind(it ? kindOf(it) : (S.tab !== 'all' ? S.tab : 'promo'));
+    setKind(it ? kindOf(it) : (S.tab !== 'all' ? S.tab : 'graded'));
     renderPicked();
     showPhoto(); photoMsg('');
     renderEditSplit();
@@ -1858,7 +1858,7 @@
     const id = S.editingId;
     try {
       if (S.col){ await S.col.doc(id).delete(); try { await S.db.doc('thumbs/' + id).delete(); } catch(e) {} THUMBS.delete(id); }
-      else { S.items = S.items.filter(x => x.id !== id); render(); }
+      else { S.items = S.items.filter(x => x.id !== id); S.allItems = S.allItems.filter(x => x.id !== id); render(); }
       closeSheet(); toast('Deleted');
     } catch(err){ setErr(handleWriteError(err)); }
   });
@@ -1933,7 +1933,7 @@
   function flowStepsFor(k){
     const st = ['kind', 'item'];
     if (k === 'promo') st.push('cond', 'source');
-    if (k === 'graded') st.push('grading');
+    if (k === 'graded') st.push('source', 'grading'); // a slab can hold a stamped promo
     if (k === 'sealed'){ st.push('ptype'); if (PACK_ART.test(F('ptype').value)) st.push('art'); }
     if (k !== 'graded') st.push('qty');
     st.push('date', 'paid');
@@ -1985,7 +1985,7 @@
 
     if (id === 'kind'){
       T('What are you adding?');
-      const cards = [['promo', 'Promo card', 'Black Star promos, event and box promos'], ['graded', 'Graded card', 'PSA, CGC, BGS and other slabs'], ['sealed', 'Sealed product', 'BBs, ETBs, UPCs, tins, 1- and 3-pack blisters']];
+      const cards = [['graded', 'Graded card', 'PSA, CGC, BGS and other slabs'], ['sealed', 'Sealed product', 'BBs, ETBs, UPCs, tins, 1- and 3-pack blisters']];
       add('<div class="kindcards">' + cards.map(([v, t, d]) => '<button type="button" class="kindcard' + (S.kind === v ? ' on' : '') + '" data-k="' + v + '" style="--stripe-c:' + STRIPE[v] + '"><div class="ic">' + placeholder(v).replace(/width="\d+" height="\d+"/, 'width="32" height="40"') + '</div><div><b>' + t + '</b><span>' + d + '</span></div></button>').join('') + '</div>');
       body.querySelectorAll('.kindcard').forEach(b => b.onclick = () => {
         if (S.kind !== b.dataset.k){ S.picked = null; setKind(b.dataset.k); renderPicked(); }
@@ -2099,7 +2099,7 @@
       r('item', 'Set', [short(it.set), it.number].filter(Boolean).join(' · '));
       r('item', 'Language', shortLang(it.lang));
       if (k === 'promo'){ r('cond', 'Condition', it.cond); r('source', 'Source', it.source); r('source', 'Variant', it.variant); }
-      if (k === 'graded'){ r('grading', 'Grade', [it.grader, it.grade].filter(Boolean).join(' ')); r('grading', 'Cert', it.cert); }
+      if (k === 'graded'){ r('source', 'Stamp', it.variant); r('grading', 'Grade', [it.grader, it.grade].filter(Boolean).join(' ')); r('grading', 'Cert', it.cert); }
       if (k === 'sealed'){ r('ptype', 'Product type', short(it.ptype)); r('art', 'Pack art', it.variant); }
       if (k !== 'graded') r('qty', 'Quantity', String(it.qty || 1));
       r('date', 'Bought', it.date ? new Date(it.date + 'T00:00').toLocaleDateString('en-AU', {day:'numeric', month:'short', year:'numeric'}) : 'Not set');
@@ -2168,8 +2168,9 @@
   });
   // A backup is plain JSON: items plus the small photo copies, keyed by position in the list.
   function backupJSON(){
-    const data = S.items.map(({id, ...rest}) => rest);
-    const thumbs = {}; S.items.forEach((it, i) => { const t = THUMBS.get(it.id); if (t) thumbs[i] = t; });
+    const all = S.allItems.length ? S.allItems : S.items;
+    const data = all.map(({id, ...rest}) => rest);
+    const thumbs = {}; all.forEach((it, i) => { const t = THUMBS.get(it.id); if (t) thumbs[i] = t; });
     return { text: JSON.stringify({vault:2, savedAt: new Date().toISOString(), currency:S.currency, items:data, thumbs}), items: data.length, photos: Object.keys(thumbs).length };
   }
   function markBackedUp(){ try { localStorage.setItem('vault.lastBackup', String(Date.now())); } catch(e) {} renderNudge(); }
@@ -2302,7 +2303,8 @@
       render();
     }, () => {});
     S.col.onSnapshot(snap => {
-      S.items = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
+      S.allItems = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
+      S.items = S.allItems.filter(it => it.kind === 'graded' || it.kind === 'sealed');
       if (!snap.metadata.fromCache){ S.live = true; clearTimeout(timer); if (S.canWrite) banner(''); }
       render();
       refreshLive(); refreshPT();
