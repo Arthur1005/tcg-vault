@@ -2386,7 +2386,7 @@
     if (!on) return;
     const s = V.status(), t = s.at ? new Date(s.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
     $('#syncStatus').textContent = s.state === 'syncing' ? 'Syncing…' : s.state === 'offline' ? 'Offline. Changes sync when you’re back online.'
-      : s.state === 'error' ? 'Couldn’t sync: ' + s.err : 'Sync is on' + (t ? ' · last synced ' + t : '') + '. Changes show on your other devices within about 15 seconds.';
+      : s.state === 'error' ? (/PGRST205|vault_rows/.test(s.err) ? 'Couldn’t sync yet: the sync table isn’t set up. Run supabase-setup.sql in Supabase’s SQL Editor, then tap Sync now.' : /Failed to fetch|NetworkError/i.test(s.err) ? 'Couldn’t reach the sync server. Check your connection, then tap Sync now.' : 'Couldn’t sync: ' + s.err) : 'Sync is on' + (t ? ' · last synced ' + t : '') + '. Changes show on your other devices within about 15 seconds.';
   }
   if (window.__vaultSync){
     window.__vaultSync.onStatus(renderSync);
