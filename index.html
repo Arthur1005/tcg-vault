@@ -78,6 +78,7 @@
   .summary .v,.summary .v.big{font-family:"Cormorant Garamond",Georgia,serif;font-size:26px;line-height:32px;font-weight:600;margin-top:var(--s1)}
   .summary .g{font-size:12px;line-height:16px;font-weight:600;margin-top:var(--s1)}
   .pos{color:var(--pos)} .neg{color:var(--neg)}
+  .each{font-family:Manrope,system-ui,sans-serif;font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0}
   /* value-over-time chart: a full-width row inside the summary card */
   .summary > div.trend,.summary > div.trend *{text-align:left}
   .summary > div.trend{grid-column:1/-1;border-top:1px solid var(--line);margin-top:var(--s2);padding-top:var(--s3)}
@@ -1326,7 +1327,7 @@
     const partialNote = vaultPartial ? '<p class="hint" style="margin:0 0 var(--s3)">No exact match · closest results</p>' : '';
     if (S.view === 'grid'){
       box.innerHTML = partialNote + '<div class="grid">' + rows.map(it => {
-        const g = valOf(it) - costOf(it), q = qtyOf(it);
+        const q = qtyOf(it), g = (valOf(it) - costOf(it)) / q;   // tiles show the price of one; the ×N badge shows how many
         const sl = kindOf(it) === 'sealed' ? sealedTitle(it) : null;
         const meta = sl ? [sl[1], it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ') : [smallLabel(it), short(it.set) || it.number, it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ');
         return '<button class="tile' + (q > 1 ? ' has-qty' : '') + '" data-id="' + esc(it.id) + '" style="--stripe-c:' + STRIPE[kindOf(it)] + '">' +
@@ -1334,18 +1335,18 @@
           '<div class="t-name">' + esc(sl ? sl[0] : (short(it.name) || 'Untitled')) + '</div>' +
           '<div class="t-art">' + artHTML(it) + '</div>' +
           '<div class="t-meta"><i class="kdot"></i><span>' + esc(meta) + '</span></div>' +
-          '<div class="t-price"><b>' + fmt(valOf(it)) + '</b>' + (costOf(it) > 0 && Math.abs(g) >= 0.5 ? '<span class="' + (g >= 0 ? 'pos' : 'neg') + '">' + fmt(g, true) + '</span>' : '') + '</div>' +
+          '<div class="t-price"><b>' + fmt(valOf(it) / q) + (q > 1 ? '<small class="each"> each</small>' : '') + '</b>' + (costOf(it) > 0 && Math.abs(g) >= 0.5 ? '<span class="' + (g >= 0 ? 'pos' : 'neg') + '">' + fmt(g, true) + '</span>' : '') + '</div>' +
         '</button>';
       }).join('') + '</div>';
     } else {
       box.innerHTML = partialNote + '<div class="list">' + rows.map(it => {
-        const g = valOf(it) - costOf(it);
+        const q = qtyOf(it), g = (valOf(it) - costOf(it)) / q;
         const sl = kindOf(it) === 'sealed' ? sealedTitle(it) : null;
         const sub = sl ? [sl[1], it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ') : [smallLabel(it), short(it.set), kindOf(it) === 'graded' && it.cert ? '#' + it.cert : (it.number || ''), it.lang === 'Japanese' ? 'JP' : ''].filter(Boolean).join(' · ');
         return '<button class="row" data-id="' + esc(it.id) + '" style="--stripe-c:' + STRIPE[kindOf(it)] + '">' +
           '<div class="r-th">' + artHTML(it).replace(/width="(\d+)" height="(\d+)"/, (m, w, h) => 'width="' + Math.round(w*.6) + '" height="' + Math.round(h*.6) + '"') + '</div>' +
           '<div class="r-m"><div class="n">' + esc(sl ? sl[0] : (short(it.name) || 'Untitled')) + (qtyOf(it) > 1 ? ' <span style="color:var(--muted);font-weight:600">×' + qtyOf(it) + '</span>' : '') + '</div><div class="s"><i class="kdot"></i><span>' + esc(sub) + '</span></div></div>' +
-          '<div class="r-v"><b>' + fmt(valOf(it)) + '</b>' + (costOf(it) > 0 && Math.abs(g) >= 0.5 ? '<span class="' + (g >= 0 ? 'pos' : 'neg') + '">' + fmt(g, true) + '</span>' : '') + '</div>' +
+          '<div class="r-v"><b>' + fmt(valOf(it) / q) + (q > 1 ? '<small class="each"> each</small>' : '') + '</b>' + (costOf(it) > 0 && Math.abs(g) >= 0.5 ? '<span class="' + (g >= 0 ? 'pos' : 'neg') + '">' + fmt(g, true) + '</span>' : '') + '</div>' +
         '</button>';
       }).join('') + '</div>';
     }
